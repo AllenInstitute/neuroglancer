@@ -200,9 +200,7 @@ class StaticPathHandler(BaseRequestHandler):
             if query:
                 query = f"?{query}"
             data, content_type = global_static_content_source.get(path, query)
-            print(data, content_type)
         except ValueError as e:
-            print("ValueError HERE")
             self.send_error(404, message=e.args[0])
             return
         self.set_header("Content-type", content_type)

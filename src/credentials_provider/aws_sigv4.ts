@@ -48,8 +48,8 @@ import {
         return init;
     }
     const signer = new SignatureV4({
-        service: "s3", // Todo: handle different services?
-        region: credentials.region, //Todo: handle different regions?
+        service: "s3",
+        region: credentials.region,
         credentials: {
             accessKeyId: credentials.accessKeyId,
             secretAccessKey: credentials.secretAccessKey,
@@ -71,7 +71,6 @@ import {
         return x
     })
     .catch((error) => {
-        console.error("Error signing request:", error);
         throw error;
       });
   }
@@ -119,36 +118,3 @@ import {
       errorHandler,
     );
   }
-  
-
-
-
-
-
-// import { Sha256 } from "@aws-crypto/sha256-js";
-// import { HttpRequest } from "@aws-sdk/protocol-http";
-// import { SignatureV4 } from "@aws-sdk/signature-v4";
-// import { HttpRequest as IHttpRequest } from "@aws-sdk/types";
-
-// const signer = new SignatureV4({
-//   service: "execute-api",
-//   region: "eu-central-1",
-//   credentials: defaultCredentialProvider(),
-//   sha256: Sha256,
-// });
-
-// export const handler = async (url: string) => {
-//   const apiUrl = new URL(url);
-//   const request = {
-//     hostname: apiUrl.hostname.toString(),
-//     protocol: apiUrl.protocol,
-//     path: apiUrl.pathname,
-//     method: "GET",
-//     headers: {
-//       "Content-Type": "application/json",
-//       host: apiUrl.hostname.toString(),
-//     },
-//   } as IHttpRequest;
-//   const signedRequest = await signer.sign(request);
-//   const client = new NodeHttpHandler();
-//   const { response } = await client.handle(new HttpRequest(signedRequest));
