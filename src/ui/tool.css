@@ -75,3 +75,54 @@
   flex: 1;
   padding: 2px;
 }
+
+/* Shared binds-indicator chip (see src/ui/tool_bindings.ts): a dark pill with a cyan key badge
+   and a light label; the "active"/current one uses the selection purple. */
+.neuroglancer-tool-bind-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 1px 6px;
+  background-color: #333;
+  border: 1px solid #555;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.neuroglancer-tool-bind-chip-active {
+  background-color: #939;
+  border-color: #969;
+}
+
+.neuroglancer-tool-bind-chip-key {
+  color: #0ff;
+  font: 9pt monospace;
+}
+
+.neuroglancer-tool-bind-chip-label {
+  color: #ccc;
+}
+
+.neuroglancer-tool-bind-chip-active .neuroglancer-tool-bind-chip-label {
+  color: #fff;
+}
+
+/* Shared value-entry box (see ToolValueEntryBuffer): a compact dark field, white text, turning
+   red when the typed value is out of range. */
+.neuroglancer-tool-entry-box {
+  display: inline-block;
+  min-width: 8ch;
+  margin-right: 6px;
+  padding: 2px 4px;
+  background: #222;
+  border: 1px solid #555;
+  border-radius: 3px;
+  color: #fff;
+  font: 12px monospace;
+  white-space: pre;
+}
+
+.neuroglancer-tool-entry-box-invalid {
+  color: #ff8080;
+  border-color: #ff5555;
+}
