@@ -839,30 +839,46 @@ export function makeToolButton(
   return element;
 }
 
-export function makeToolActivationStatusMessage(activation: ToolActivation) {
+export interface ToolActivationStatusMessageOptions {
+  // When true (the default), the standard "binds" line (an `EventActionMap.describe()`
+  // summary) is appended automatically whenever `bindInputEventMap` is called. Tools that
+  // render their own (e.g. conditional) binds indicator should pass `false`.
+  showBindings?: boolean;
+}
+
+export function makeToolActivationStatusMessage(
+  activation: ToolActivation,
+  options: ToolActivationStatusMessageOptions = {},
+) {
   const message = activation.registerDisposer(new StatusMessage(false));
   message.element.classList.add("neuroglancer-tool-status");
   const content = document.createElement("div");
   content.classList.add("neuroglancer-tool-status-content");
   message.element.appendChild(content);
-  const { inputEventMapBinder } = activation;
-  activation.inputEventMapBinder = (
-    inputEventMap: EventActionMap,
-    context: RefCounted,
-  ) => {
-    const bindingHelp = document.createElement("div");
-    bindingHelp.textContent = inputEventMap.describe();
-    bindingHelp.classList.add("neuroglancer-tool-status-bindings");
-    message.element.appendChild(bindingHelp);
-    inputEventMapBinder(inputEventMap, context);
-  };
+  if (options.showBindings !== false) {
+    const { inputEventMapBinder } = activation;
+    activation.inputEventMapBinder = (
+      inputEventMap: EventActionMap,
+      context: RefCounted,
+    ) => {
+      const bindingHelp = document.createElement("div");
+      bindingHelp.textContent = inputEventMap.describe();
+      bindingHelp.classList.add("neuroglancer-tool-status-bindings");
+      message.element.appendChild(bindingHelp);
+      inputEventMapBinder(inputEventMap, context);
+    };
+  }
   return { message, content };
 }
 
 export function makeToolActivationStatusMessageWithHeader(
   activation: ToolActivation,
+  options: ToolActivationStatusMessageOptions = {},
 ) {
-  const { message, content } = makeToolActivationStatusMessage(activation);
+  const { message, content } = makeToolActivationStatusMessage(
+    activation,
+    options,
+  );
   const header = document.createElement("div");
   header.classList.add("neuroglancer-tool-status-header");
   const headerContainer = document.createElement("div");
@@ -873,6 +889,19 @@ export function makeToolActivationStatusMessageWithHeader(
   body.classList.add("neuroglancer-tool-status-body");
   content.appendChild(body);
   return { message, body, header };
+}
+
+// Returns the unshifted key-event identifier (e.g. "keyw") for the tool key currently bound to
+// `toolId` in `localBinder`, or undefined if it is unbound. Tool keys are single uppercase
+// letters activated with shift; this is the same letter without the modifier, useful for a tool
+// whose indicator or in-mode navigation reuses a sibling tool's binding.
+export function getToolBoundKey(
+  localBinder: LocalToolBinder,
+  toolId: any,
+): string | undefined {
+  const key = localBinder.jsonToKey.get(JSON.stringify(toolId));
+  if (key === undefined) return undefined;
+  return `key${key.toLowerCase()}`;
 }
 
 function* getToolsFromListerMatchingTerms(
