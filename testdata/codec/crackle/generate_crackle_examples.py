@@ -26,8 +26,21 @@
 #
 # This should be run from within the testdata/ directory.
 
+import json
+
 import crackle
 import numpy as np
+
+
+def load_json(filename):
+    with open(filename) as f:
+        json_obj = json.load(f)
+    metadata = json_obj["metadata"]
+    order = "F" if metadata["fortranOrder"] else "C"
+    return np.asarray(json_obj["data"], dtype=metadata["dataType"]).reshape(
+        metadata["shape"], order=order
+    )
+
 
 ones = np.ones([32, 32, 32], dtype=np.uint8, order="F")
 
@@ -44,11 +57,11 @@ crackle.save(zeros.astype(np.uint16), "zeros2.ckl")
 crackle.save(zeros.astype(np.uint32), "zeros4.ckl")
 crackle.save(zeros.astype(np.uint64), "zeros8.ckl")
 
-pinky40 = np.load("pinky40.npy")
+pinky40 = load_json("pinky40.json")
 crackle.save(pinky40, "pinky40.ckl")
 crackle.save(pinky40, "pinky40_m4.ckl", markov_model_order=4)
 crackle.save(pinky40, "pinky40_m4pins.ckl", markov_model_order=4, allow_pins=True)
 crackle.save(pinky40, "pinky40_pins.ckl", allow_pins=True)
 
-random_data = np.load("random.npy")
+random_data = load_json("random.json")
 crackle.save(random_data, "random.ckl")
