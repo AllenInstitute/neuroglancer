@@ -300,10 +300,18 @@ function remapNumericalProperty(
   numMerged: number,
   toMerged: Uint32Array,
 ): InlineSegmentNumericalProperty {
-  const values = property.values.slice(0, numMerged);
+  const hasMissingValues = numMerged !== property.values.length;
+  const dataType =
+    hasMissingValues && property.dataType !== DataType.FLOAT32
+      ? DataType.FLOAT32
+      : property.dataType;
+  const values =
+    dataType === DataType.FLOAT32
+      ? new Float32Array(numMerged)
+      : new (property.values.constructor as typeof Uint8Array)(numMerged);
   values.fill(Number.NaN);
   remapArray(property.values, values, toMerged);
-  return { ...property, values };
+  return { ...property, dataType, values };
 }
 
 function remapProperty(

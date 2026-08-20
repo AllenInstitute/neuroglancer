@@ -65,6 +65,46 @@ describe("mergeSegmentPropertyMaps", () => {
       ],
     });
   });
+
+  test("preserves missing numerical property values", () => {
+    const a = new SegmentPropertyMap({
+      inlineProperties: {
+        ids: BigUint64Array.of(5n, 8n),
+        properties: [
+          {
+            type: "number",
+            id: "score",
+            description: undefined,
+            dataType: DataType.INT32,
+            values: Int32Array.of(10, 20),
+            bounds: [10, 20],
+          },
+        ],
+      },
+    });
+    const b = new SegmentPropertyMap({
+      inlineProperties: {
+        ids: BigUint64Array.of(6n, 7n),
+        properties: [],
+      },
+    });
+
+    const merged = mergeSegmentPropertyMaps([a, b]);
+
+    expect(merged?.inlineProperties).toEqual({
+      ids: BigUint64Array.of(5n, 6n, 7n, 8n),
+      properties: [
+        {
+          type: "number",
+          id: "score",
+          description: undefined,
+          dataType: DataType.FLOAT32,
+          values: Float32Array.of(10, Number.NaN, Number.NaN, 20),
+          bounds: [10, 20],
+        },
+      ],
+    });
+  });
 });
 
 describe("parseSegmentQuery", () => {
