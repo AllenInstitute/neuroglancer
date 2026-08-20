@@ -526,6 +526,7 @@ void main() {
           {
             type: "propertyInvlerp",
             properties,
+            propertySource: "annotation",
             clamp: true,
             default: {
               range: undefined,
@@ -569,6 +570,7 @@ void main() {
           {
             type: "propertyInvlerp",
             properties,
+            propertySource: "annotation",
             clamp: true,
             default: {
               range: undefined,
@@ -612,6 +614,7 @@ void main() {
           {
             type: "propertyInvlerp",
             properties,
+            propertySource: "annotation",
             clamp: true,
             default: {
               range: [1, 10],
@@ -655,6 +658,7 @@ void main() {
           {
             type: "propertyInvlerp",
             properties,
+            propertySource: "annotation",
             clamp: true,
             default: {
               range: undefined,
@@ -1234,9 +1238,10 @@ void main() {
       expect(shaderControlState.parseErrors.value).toEqual([]);
       expect(shaderControlState.parseResult.value.source).toBe(fallbackCode);
       expect(shaderControlState.builderState.value.builderValues).toEqual({});
-      expect(shaderControlState.builderState.value.segmentProperties).toEqual(
-        [],
-      );
+      expect(shaderControlState.builderState.value.propertyReferences).toEqual({
+        source: undefined,
+        references: [],
+      });
       expect(shaderControlState.state.size).toBe(0);
 
       dataContext.value = { segmentPropertyMap: makeSegmentPropertyMap() };
@@ -1251,7 +1256,7 @@ void main() {
     }
   });
 
-  it("tracks annotation property invlerp controls as referenced properties", () => {
+  it("tracks annotation property invlerp controls as annotation properties", () => {
     const code = `
 #uicontrol invlerp normalized(property="score")
 void main() {
@@ -1266,12 +1271,10 @@ void main() {
       dataContext,
     );
     try {
-      expect(
-        shaderControlState.builderState.value.referencedProperties,
-      ).toEqual(["score"]);
-      expect(shaderControlState.builderState.value.segmentProperties).toEqual(
-        [],
-      );
+      expect(shaderControlState.builderState.value.propertyReferences).toEqual({
+        source: "annotation",
+        references: ["score"],
+      });
     } finally {
       shaderControlState.dispose();
     }
@@ -1288,7 +1291,7 @@ void main() {
     const dataContext = new WatchableValue<ShaderDataContext | null>({
       properties: new Map([["score", DataType.UINT8]]),
       values: new Map([["score", new Uint8Array([1])]]),
-      shaderName: () => "numerical0",
+      propertySource: "segment",
       segmentPropertyMap,
     });
     const shaderControlState = new ShaderControlState(
@@ -1296,15 +1299,30 @@ void main() {
       dataContext,
     );
     try {
-      expect(
-        shaderControlState.builderState.value.referencedProperties,
-      ).toEqual([]);
-      expect(shaderControlState.builderState.value.segmentProperties).toEqual([
-        { type: "numerical", id: "score" },
-      ]);
+      expect(shaderControlState.builderState.value.propertyReferences).toEqual({
+        source: "segment",
+        references: [{ type: "numerical", id: "score" }],
+      });
     } finally {
       shaderControlState.dispose();
     }
+  });
+
+  it("rejects mixed annotation and segment property references", () => {
+    const code = `
+#uicontrol invlerp normalized(property="score")
+#uicontrol property selected
+void main() {
+}
+`;
+    const fragmentMain = new WatchableValue(code);
+    const dataContext = new WatchableValue<ShaderDataContext | null>({
+      properties: new Map([["score", DataType.UINT8]]),
+      segmentPropertyMap: makeSegmentPropertyMap(),
+    });
+    expect(() => new ShaderControlState(fragmentMain, dataContext)).toThrow(
+      "Shader controls cannot mix property sources",
+    );
   });
 
   it("defaults to first property when created", () => {
@@ -1326,9 +1344,10 @@ void main() {
         type: "tag",
         id: "red",
       });
-      expect(shaderControlState.builderState.value.segmentProperties).toEqual([
-        { type: "tag", id: "red" },
-      ]);
+      expect(shaderControlState.builderState.value.propertyReferences).toEqual({
+        source: "segment",
+        references: [{ type: "tag", id: "red" }],
+      });
     } finally {
       shaderControlState.dispose();
     }
@@ -1353,9 +1372,10 @@ void main() {
         type: "numerical",
         id: "score",
       });
-      expect(shaderControlState.builderState.value.segmentProperties).toEqual([
-        { type: "numerical", id: "score" },
-      ]);
+      expect(shaderControlState.builderState.value.propertyReferences).toEqual({
+        source: "segment",
+        references: [{ type: "numerical", id: "score" }],
+      });
     } finally {
       shaderControlState.dispose();
     }
@@ -1395,18 +1415,20 @@ void main() {
         type: "tag",
         id: "red",
       });
-      expect(shaderControlState.builderState.value.segmentProperties).toEqual([
-        { type: "tag", id: "red" },
-      ]);
+      expect(shaderControlState.builderState.value.propertyReferences).toEqual({
+        source: "segment",
+        references: [{ type: "tag", id: "red" }],
+      });
 
       fragmentMain.value = unfilteredCode;
       expect(getSelectedPropertyValue(shaderControlState)).toEqual({
         type: "tag",
         id: "red",
       });
-      expect(shaderControlState.builderState.value.segmentProperties).toEqual([
-        { type: "tag", id: "red" },
-      ]);
+      expect(shaderControlState.builderState.value.propertyReferences).toEqual({
+        source: "segment",
+        references: [{ type: "tag", id: "red" }],
+      });
     } finally {
       shaderControlState.dispose();
     }
@@ -1442,9 +1464,10 @@ void main() {
         type: "tag",
         id: "red",
       });
-      expect(shaderControlState.builderState.value.segmentProperties).toEqual([
-        { type: "tag", id: "red" },
-      ]);
+      expect(shaderControlState.builderState.value.propertyReferences).toEqual({
+        source: "segment",
+        references: [{ type: "tag", id: "red" }],
+      });
     } finally {
       shaderControlState.dispose();
     }

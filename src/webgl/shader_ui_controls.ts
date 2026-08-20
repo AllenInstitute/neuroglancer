@@ -110,13 +110,15 @@ export interface ShaderImageInvlerpControl {
 }
 
 export type PropertiesSpecification = Map<string, DataType>;
+export type PropertySource = "annotation" | "segment";
 
 export interface ShaderPropertyInvlerpControl {
   type: "propertyInvlerp";
   clamp: boolean;
   properties: PropertiesSpecification;
   values?: Map<string, TypedNumberArray<ArrayBuffer>>;
-  shaderName?: (arg0: string) => string;
+  propertySource: PropertySource;
+  getPropertyValueExpression?: (property: string) => string;
   default: PropertyInvlerpParameters;
 }
 
@@ -189,8 +191,7 @@ export interface ShaderControlsBuilderState {
   key: string;
   parseResult: ShaderControlsParseResult;
   builderValues: ShaderBuilderValues;
-  referencedProperties: string[];
-  segmentProperties: SegmentPropertyReference[];
+  propertyReferences: ShaderPropertyReferences;
 }
 
 // Strips comments from GLSL code.  Also handles string literals since they are used in ui control
@@ -638,7 +639,13 @@ function parseInvlerpDirective(
   parameters: DirectiveParameters,
   dataContext: ShaderDataContext,
 ): DirectiveParseResult {
-  const { imageData, properties, values, shaderName } = dataContext;
+  const {
+    imageData,
+    properties,
+    values,
+    propertySource,
+    getPropertyValueExpression,
+  } = dataContext;
   if (imageData !== undefined) {
     return parseImageInvlerpDirective(valueType, parameters, imageData);
   }
@@ -648,7 +655,8 @@ function parseInvlerpDirective(
       parameters,
       properties,
       values,
-      shaderName,
+      propertySource,
+      getPropertyValueExpression,
     );
   }
   const errors = [];
@@ -783,7 +791,8 @@ function parsePropertyInvlerpDirective(
   parameters: DirectiveParameters,
   properties: Map<string, DataType>,
   values?: Map<string, TypedNumberArray<ArrayBuffer>>,
-  shaderName?: (arg0: string) => string,
+  propertySource: PropertySource = "annotation",
+  getPropertyValueExpression?: (property: string) => string,
 ) {
   const errors = [];
   if (valueType !== "invlerp") {
@@ -852,8 +861,11 @@ function parsePropertyInvlerpDirective(
       type: "propertyInvlerp",
       clamp,
       properties,
-      values,
-      shaderName,
+      propertySource,
+      ...(values === undefined ? {} : { values }),
+      ...(getPropertyValueExpression === undefined
+        ? {}
+        : { getPropertyValueExpression }),
       default: { range, window, property: property!, dataType },
     } satisfies ShaderPropertyInvlerpControl,
     errors: undefined,
@@ -950,7 +962,8 @@ export interface ShaderDataContext {
   imageData?: ImageDataSpecification;
   properties?: Map<string, DataType>;
   values?: Map<string, TypedNumberArray<ArrayBuffer>>;
-  shaderName?: (arg0: string) => string;
+  propertySource?: PropertySource;
+  getPropertyValueExpression?: (property: string) => string;
   segmentPropertyMap?: PreprocessedSegmentPropertyMap;
 }
 
@@ -1084,14 +1097,14 @@ float ${uName}() {
       case "propertyInvlerp": {
         const property = builderValue.property;
         const dataType = control.properties.get(property)!;
-        const propertyShaderName = control.shaderName
-          ? control.shaderName(property)
+        const propertyValueExpression = control.getPropertyValueExpression
+          ? control.getPropertyValueExpression(property)
           : `prop_${property}()`;
         const code = [
           defineInvlerpShaderFunction(builder, uName, dataType, control.clamp),
           `
 float ${uName}() {
-  return ${uName}(${propertyShaderName});
+  return ${uName}(${propertyValueExpression});
 }
 `,
         ];
@@ -1696,75 +1709,98 @@ export type ShaderBuilderValues = {
   [key: string]: any;
 };
 
+export type ShaderPropertyReferences =
+  | { source: undefined; references: [] }
+  | { source: "annotation"; references: string[] }
+  | { source: "segment"; references: SegmentPropertyReference[] };
+
+type ShaderPropertyReference =
+  | { source: "annotation"; id: string }
+  | { source: "segment"; reference: SegmentPropertyReference };
+
 function encodeBuilderStateKey(
   builderValues: ShaderBuilderValues,
   parseResult: ShaderControlsParseResult,
-  referencedProperties: string[],
-  segmentProperties: SegmentPropertyReference[],
+  propertyReferences: ShaderPropertyReferences,
 ) {
   return (
     JSON.stringify(builderValues) +
     "\0" +
-    JSON.stringify(referencedProperties) +
-    "\0" +
-    JSON.stringify(segmentProperties) +
+    JSON.stringify(propertyReferences) +
     "\0" +
     parseResult.source
   );
 }
 
-function addReferencedPropertiesFromControl(
+function getShaderPropertyReference(
   control: ShaderUiControl,
   builderValue: any,
   trackableValue: any,
-  referencedProperties: string[],
-  segmentProperties: SegmentPropertyReference[],
-) {
+): ShaderPropertyReference | undefined {
   if (control.type === "propertyInvlerp") {
-    if (control.shaderName === undefined) {
-      referencedProperties.push(builderValue.property);
-    } else {
-      segmentProperties.push({
-        type: "numerical",
-        id: builderValue.property,
-      });
-    }
+    return control.propertySource === "segment"
+      ? {
+          source: "segment",
+          reference: { type: "numerical", id: builderValue.property },
+        }
+      : { source: "annotation", id: builderValue.property };
   }
   if (control.type === "property" && builderValue !== undefined) {
     const { type, id } = trackableValue as SegmentPropertyReference;
-    segmentProperties.push({ type, id });
+    return { source: "segment", reference: { type, id } };
   }
+  return undefined;
+}
+
+function resolveShaderPropertyReferences(
+  references: ShaderPropertyReference[],
+): ShaderPropertyReferences {
+  const firstReference = references[0];
+  if (firstReference === undefined) {
+    return { source: undefined, references: [] };
+  }
+  if (firstReference.source === "annotation") {
+    const annotationReferences: string[] = [];
+    for (const reference of references) {
+      if (reference.source !== "annotation") {
+        throw new Error("Shader controls cannot mix property sources");
+      }
+      annotationReferences.push(reference.id);
+    }
+    return { source: "annotation", references: annotationReferences };
+  }
+  const segmentReferences: SegmentPropertyReference[] = [];
+  for (const reference of references) {
+    if (reference.source !== "segment") {
+      throw new Error("Shader controls cannot mix property sources");
+    }
+    segmentReferences.push(reference.reference);
+  }
+  return { source: "segment", references: segmentReferences };
 }
 
 export function getFallbackBuilderState(
   parseResult: ShaderControlsParseResult,
 ): ShaderControlsBuilderState {
   const builderValues: ShaderBuilderValues = {};
-  const referencedProperties: string[] = [];
-  const segmentProperties: SegmentPropertyReference[] = [];
+  const references: ShaderPropertyReference[] = [];
   for (const [key, control] of parseResult.controls) {
     const { trackable, getBuilderValue } = getControlTrackable(control);
     const builderValue = getBuilderValue(trackable.value);
     builderValues[key] = builderValue;
-    addReferencedPropertiesFromControl(
+    const reference = getShaderPropertyReference(
       control,
       builderValue,
       trackable.value,
-      referencedProperties,
-      segmentProperties,
     );
+    if (reference !== undefined) references.push(reference);
   }
+  const propertyReferences = resolveShaderPropertyReferences(references);
   return {
     builderValues,
     parseResult,
-    key: encodeBuilderStateKey(
-      builderValues,
-      parseResult,
-      referencedProperties,
-      segmentProperties,
-    ),
-    referencedProperties,
-    segmentProperties,
+    key: encodeBuilderStateKey(builderValues, parseResult, propertyReferences),
+    propertyReferences,
   };
 }
 
@@ -1861,31 +1897,28 @@ export class ShaderControlState
     this.builderState = makeCachedDerivedWatchableValue(
       (parseResult: ShaderControlsParseResult, state: ShaderControlMap) => {
         const builderValues: ShaderBuilderValues = {};
-        const referencedProperties: string[] = [];
-        const segmentProperties: SegmentPropertyReference[] = [];
+        const references: ShaderPropertyReference[] = [];
         for (const [key, { control, trackable, getBuilderValue }] of state) {
           if (!parseResult.controls.has(key)) continue;
           const builderValue = getBuilderValue(trackable.value);
           builderValues[key] = builderValue;
-          addReferencedPropertiesFromControl(
+          const reference = getShaderPropertyReference(
             control,
             builderValue,
             trackable.value,
-            referencedProperties,
-            segmentProperties,
           );
+          if (reference !== undefined) references.push(reference);
         }
+        const propertyReferences = resolveShaderPropertyReferences(references);
         return {
           key: encodeBuilderStateKey(
             builderValues,
             parseResult,
-            referencedProperties,
-            segmentProperties,
+            propertyReferences,
           ),
           parseResult,
           builderValues,
-          referencedProperties,
-          segmentProperties,
+          propertyReferences,
         };
       },
       [this.parseResult, this],
