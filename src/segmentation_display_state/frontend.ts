@@ -1,3 +1,4 @@
+import type { WatchableShaderError } from "#src/webgl/dynamic_shader.js";
 /**
  * @license
  * Copyright 2016 Google Inc.
@@ -208,6 +209,9 @@ export interface SegmentationDisplayState {
   segmentColorShaderControlState: ShaderControlState;
   segmentationColorUserShader: SegmentColorUserShaderManager;
   fragmentSegmentColor: WatchableValueInterface<string>;
+  volumeShaderError: WatchableShaderError;
+  meshShaderError: WatchableShaderError;
+  offscreenShaderError: WatchableShaderError;
 
   selectSegment: (id: bigint, pin: boolean | "toggle" | "force-unpin") => void;
   filterBySegmentLabel: (id: bigint) => void;
