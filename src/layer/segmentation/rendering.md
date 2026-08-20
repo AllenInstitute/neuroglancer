@@ -73,6 +73,21 @@ vec4 segmentColor(vec4 color, bool hasProperties, bool isStated) {
 To retrieve a numerical or string property named `myProperty`, use the syntax
 `prop("myProperty")`.
 
+To determine whether an individual numerical property is available for the
+current segment, use `hasProp("myProperty")`. This permits shaders to handle
+partially populated merged property maps without treating a missing value as
+zero.
+
+```glsl
+if (hasProp("myProperty")) {
+  uint value = prop("myProperty");
+  // use value
+}
+```
+
+The `hasProperties` argument remains an aggregate check and is false if any
+referenced numerical property is unavailable.
+
 To check if a tag named `myTag` is enabled for a segment, use the syntax
 
 ```glsl

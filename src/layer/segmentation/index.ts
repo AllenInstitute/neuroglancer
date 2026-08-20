@@ -561,7 +561,14 @@ class SegmentationUserLayerDisplayState implements SegmentationDisplayState {
             }
             for (const property of segmentPropertyMap.numericalProperties) {
               properties.set(property.id, property.dataType);
-              values.set(property.id, property.values);
+              values.set(
+                property.id,
+                property.validity === undefined
+                  ? property.values
+                  : property.values.filter(
+                      (_, index) => property.validity![index] !== 0,
+                    ),
+              );
             }
             const shaderName = (property: string) => {
               const propertyIdx =
@@ -1465,7 +1472,8 @@ export class SegmentationUserLayer extends Base {
               const value = property.values[index];
               if (
                 property.type === "number"
-                  ? Number.isNaN(value as number)
+                  ? property.validity?.[index] === 0 ||
+                    Number.isNaN(value as number)
                   : !value
               )
                 continue;

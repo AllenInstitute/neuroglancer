@@ -518,6 +518,94 @@ vec3 segmentColor(vec3 color, bool hasProperties, bool isStated) {
     );
   });
 
+  it("preserves integer values and reports masked values as missing", () => {
+    const segmentationUserLayer = setupSegmentationLayer();
+    setSegmentPropertyMap(segmentationUserLayer, {
+      ids: new BigUint64Array([1n, 2n]),
+      properties: [
+        {
+          id: "score",
+          type: "number",
+          dataType: DataType.UINT32,
+          description: undefined,
+          values: Uint32Array.of(4_000_000_001, 0),
+          validity: Uint8Array.of(1, 0),
+          bounds: [0, 4_000_000_001],
+        },
+      ],
+    });
+    segmentationUserLayer.displayState.fragmentSegmentColor.value = `
+#uicontrol property scoreProperty(type="number")
+vec3 segmentColor(vec3 color, bool hasProperties, bool isStated) {
+  if (!hasProperties) return vec3(0.0, 0.0, 1.0);
+  if (scoreProperty == 4000000001u) return vec3(1.0, 0.0, 0.0);
+  return vec3(0.0, 1.0, 0.0);
+}`;
+    setSegmentPropertyControl(segmentationUserLayer, "scoreProperty", {
+      type: "numerical",
+      id: "score",
+    });
+
+    expectColor(
+      segmentationUserLayer.displayState.getShaderBaseSegmentColor(1n)!,
+      [1.0, 0.0, 0.0, 0.0],
+    );
+    expectColor(
+      segmentationUserLayer.displayState.getShaderBaseSegmentColor(2n)!,
+      [0.0, 0.0, 1.0, 0.0],
+    );
+  });
+
+  it("checks each numerical property validity independently", () => {
+    const segmentationUserLayer = setupSegmentationLayer();
+    setSegmentPropertyMap(segmentationUserLayer, {
+      ids: new BigUint64Array([1n, 2n]),
+      properties: [
+        {
+          id: "score",
+          type: "number",
+          dataType: DataType.UINT8,
+          description: undefined,
+          values: Uint8Array.of(10, 0),
+          validity: Uint8Array.of(1, 0),
+          bounds: [0, 10],
+        },
+        {
+          id: "weight",
+          type: "number",
+          dataType: DataType.UINT8,
+          description: undefined,
+          values: Uint8Array.of(0, 20),
+          validity: Uint8Array.of(0, 1),
+          bounds: [0, 20],
+        },
+      ],
+    });
+    segmentationUserLayer.displayState.fragmentSegmentColor.value = `
+vec3 segmentColor(vec3 color, bool hasProperties, bool isStated) {
+  if (hasProp("score") && prop("score") == 10u) {
+    return vec3(1.0, 0.0, 0.0);
+  }
+  if (hasProp("weight") && prop("weight") == 20u) {
+    return vec3(0.0, 1.0, 0.0);
+  }
+  return vec3(0.0, 0.0, 1.0);
+}`;
+
+    expectColor(
+      segmentationUserLayer.displayState.getShaderBaseSegmentColor(1n)!,
+      [1.0, 0.0, 0.0, 0.0],
+    );
+    expectColor(
+      segmentationUserLayer.displayState.getShaderBaseSegmentColor(2n)!,
+      [0.0, 1.0, 0.0, 0.0],
+    );
+    expectColor(
+      segmentationUserLayer.displayState.getShaderBaseSegmentColor(3n)!,
+      [0.0, 0.0, 1.0, 0.0],
+    );
+  });
+
   it("colors by numerical property helper", () => {
     const segmentationUserLayer = setupSegmentationLayer();
     setSegmentPropertyMap(segmentationUserLayer, {

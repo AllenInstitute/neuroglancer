@@ -16,6 +16,7 @@
 
 import { describe, test, expect } from "vitest";
 import {
+  executeSegmentQuery,
   mergeSegmentPropertyMaps,
   parseSegmentQuery,
   PreprocessedSegmentPropertyMap,
@@ -62,6 +63,47 @@ describe("mergeSegmentPropertyMaps", () => {
       properties: [
         { type: "string", id: "prop1", values: ["x", "y", "", "z"] },
         { type: "string", id: "prop2", values: ["a", "", "b", ""] },
+      ],
+    });
+  });
+
+  test("preserves numerical property type and missingness", () => {
+    const a = new SegmentPropertyMap({
+      inlineProperties: {
+        ids: BigUint64Array.of(5n, 8n),
+        properties: [
+          {
+            type: "number",
+            id: "score",
+            description: undefined,
+            dataType: DataType.INT32,
+            values: Int32Array.of(10, 20),
+            bounds: [10, 20],
+          },
+        ],
+      },
+    });
+    const b = new SegmentPropertyMap({
+      inlineProperties: {
+        ids: BigUint64Array.of(6n, 7n),
+        properties: [],
+      },
+    });
+
+    const merged = mergeSegmentPropertyMaps([a, b]);
+
+    expect(merged?.inlineProperties).toEqual({
+      ids: BigUint64Array.of(5n, 6n, 7n, 8n),
+      properties: [
+        {
+          type: "number",
+          id: "score",
+          description: undefined,
+          dataType: DataType.INT32,
+          values: Int32Array.of(10, 0, 0, 20),
+          validity: Uint8Array.of(1, 0, 0, 1),
+          bounds: [10, 20],
+        },
       ],
     });
   });
@@ -214,6 +256,32 @@ describe("parseSegmentQuery", () => {
         ],
       }
     `);
+  });
+
+  test("excludes missing numerical property values", () => {
+    const mapWithMissingValue = new PreprocessedSegmentPropertyMap({
+      inlineProperties: {
+        ids: BigUint64Array.of(1n, 2n),
+        properties: [
+          {
+            type: "number",
+            dataType: DataType.INT32,
+            description: undefined,
+            id: "score",
+            values: Int32Array.of(0, 0),
+            validity: Uint8Array.of(1, 0),
+            bounds: [0, 10],
+          },
+        ],
+      },
+    });
+
+    const result = executeSegmentQuery(
+      mapWithMissingValue,
+      parseSegmentQuery(mapWithMissingValue, "score=0"),
+    );
+
+    expect(result.indices).toEqual(Uint8Array.of(0));
   });
 
   test("handles numeric >= comparison", () => {
