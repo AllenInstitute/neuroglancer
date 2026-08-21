@@ -16,6 +16,7 @@
 
 import { describe, test, expect } from "vitest";
 import {
+  executeSegmentQuery,
   mergeSegmentPropertyMaps,
   parseSegmentQuery,
   PreprocessedSegmentPropertyMap,
@@ -66,7 +67,7 @@ describe("mergeSegmentPropertyMaps", () => {
     });
   });
 
-  test("preserves missing numerical property values", () => {
+  test("preserves numerical property type and missingness", () => {
     const a = new SegmentPropertyMap({
       inlineProperties: {
         ids: BigUint64Array.of(5n, 8n),
@@ -98,8 +99,9 @@ describe("mergeSegmentPropertyMaps", () => {
           type: "number",
           id: "score",
           description: undefined,
-          dataType: DataType.FLOAT32,
-          values: Float32Array.of(10, Number.NaN, Number.NaN, 20),
+          dataType: DataType.INT32,
+          values: Int32Array.of(10, 0, 0, 20),
+          validity: Uint8Array.of(1, 0, 0, 1),
           bounds: [10, 20],
         },
       ],
@@ -254,6 +256,32 @@ describe("parseSegmentQuery", () => {
         ],
       }
     `);
+  });
+
+  test("excludes missing numerical property values", () => {
+    const mapWithMissingValue = new PreprocessedSegmentPropertyMap({
+      inlineProperties: {
+        ids: BigUint64Array.of(1n, 2n),
+        properties: [
+          {
+            type: "number",
+            dataType: DataType.INT32,
+            description: undefined,
+            id: "score",
+            values: Int32Array.of(0, 0),
+            validity: Uint8Array.of(1, 0),
+            bounds: [0, 10],
+          },
+        ],
+      },
+    });
+
+    const result = executeSegmentQuery(
+      mapWithMissingValue,
+      parseSegmentQuery(mapWithMissingValue, "score=0"),
+    );
+
+    expect(result.indices).toEqual(Uint8Array.of(0));
   });
 
   test("handles numeric >= comparison", () => {

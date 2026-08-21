@@ -70,6 +70,7 @@ export interface InlineSegmentNumericalProperty {
   dataType: DataType;
   description: string | undefined;
   values: TypedNumberArray<ArrayBuffer>;
+  validity?: Uint8Array<ArrayBuffer>;
   bounds: DataTypeInterval;
 }
 
@@ -276,10 +277,24 @@ export function normalizeInlineSegmentPropertyMap(
   const properties = inlineProperties.properties.map((property) => {
     const { values } = property;
     const newValues = new (values.constructor as typeof Array)(length);
-    for (let i = 0; i < length; ++i) {
-      newValues[i] = values[permutation[i]];
+    let newValidity: Uint8Array | undefined;
+    let oldValidity: Uint8Array | undefined;
+    if (property.type === "number" && property.validity !== undefined) {
+      newValidity = new Uint8Array(length);
+      oldValidity = property.validity;
     }
-    return { ...property, values: newValues } as InlineSegmentProperty;
+    for (let i = 0; i < length; ++i) {
+      const oldIndex = permutation[i];
+      newValues[i] = values[oldIndex];
+      if (newValidity !== undefined) {
+        newValidity[i] = oldValidity![oldIndex];
+      }
+    }
+    return {
+      ...property,
+      values: newValues,
+      ...(newValidity === undefined ? {} : { validity: newValidity }),
+    } as InlineSegmentProperty;
   });
   return { ids: newIds, properties };
 }
@@ -300,18 +315,19 @@ function remapNumericalProperty(
   numMerged: number,
   toMerged: Uint32Array,
 ): InlineSegmentNumericalProperty {
-  const hasMissingValues = numMerged !== property.values.length;
-  const dataType =
-    hasMissingValues && property.dataType !== DataType.FLOAT32
-      ? DataType.FLOAT32
-      : property.dataType;
-  const values =
-    dataType === DataType.FLOAT32
-      ? new Float32Array(numMerged)
-      : new (property.values.constructor as typeof Uint8Array)(numMerged);
-  values.fill(Number.NaN);
+  const values = new (property.values.constructor as typeof Uint8Array)(
+    numMerged,
+  );
+  const validity = new Uint8Array(numMerged);
   remapArray(property.values, values, toMerged);
-  return { ...property, dataType, values };
+  if (property.validity === undefined) {
+    for (let i = 0; i < toMerged.length; ++i) {
+      validity[toMerged[i]] = 1;
+    }
+  } else {
+    remapArray(property.validity, validity, toMerged);
+  }
+  return { ...property, values, validity };
 }
 
 function remapProperty(
@@ -963,13 +979,16 @@ export function executeSegmentQuery(
       const property = numericalProperties.find(
         (p) => p.id === constraint.fieldId,
       )!;
-      const { values } = property;
+      const { values, validity } = property;
       const bit = 2 ** constraintIndex;
       const [min, max] = constraint.bounds as [number, number];
       for (let i = 0, n = indices.length; i < n; ++i) {
         const value = values[indices[i]];
         intermediateIndicesMask[i] |=
-          bit * ((value >= min && value <= max) as any);
+          bit *
+          ((validity?.[indices[i]] !== 0 &&
+            value >= min &&
+            value <= max) as any);
       }
     }
     intermediateIndices = indices;
@@ -1032,8 +1051,13 @@ export function executeSegmentQuery(
         (a, b) => defaultStringCompare(values[a], values[b]) * orderCoeff,
       );
     } else {
-      const values = property.values as TypedNumberArray;
-      indices.sort((a, b) => (values[a] - values[b]) * orderCoeff);
+      const { values, validity } = property;
+      indices.sort((a, b) => {
+        const aValid = validity?.[a] !== 0;
+        const bValid = validity?.[b] !== 0;
+        if (aValid !== bValid) return aValid ? -1 : 1;
+        return aValid ? (values[a] - values[b]) * orderCoeff : 0;
+      });
     }
   };
 
@@ -1088,7 +1112,7 @@ function updatePropertyHistogram(
   bounds: DataTypeInterval,
 ): PropertyHistogram {
   const numBins = 256;
-  const { values } = property;
+  const { values, validity } = property;
   const [min, max] = bounds as [number, number];
   const multiplier = max <= min ? 0 : numBins / (max - min);
   const histogram = new Uint32Array(numBins + 2);
@@ -1101,7 +1125,7 @@ function updatePropertyHistogram(
     const indices = queryResult.indices!;
     for (let i = 0, n = indices.length; i < n; ++i) {
       const value = values[indices[i]];
-      if (!Number.isNaN(value)) {
+      if (validity?.[indices[i]] !== 0 && !Number.isNaN(value)) {
         ++histogram[
           (Math.min(numBins - 1, Math.max(-1, (value - min) * multiplier)) +
             1) >>>
@@ -1119,7 +1143,7 @@ function updatePropertyHistogram(
       const mask = intermediateIndicesMask[i];
       if ((mask & requiredBits) === requiredBits) {
         const value = values[intermediateIndices[i]];
-        if (!Number.isNaN(value)) {
+        if (validity?.[intermediateIndices[i]] !== 0 && !Number.isNaN(value)) {
           ++histogram[
             (Math.min(numBins - 1, Math.max(-1, (value - min) * multiplier)) +
               1) >>>

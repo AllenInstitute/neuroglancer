@@ -230,20 +230,23 @@ bool ${this.getFunctionName}(uint64_t x, out vec4 value) {
 
 interface SegmentPropertyShaderData {
   texture: WebGLTexture;
+  validityTexture: WebGLTexture | undefined;
   dataType: DataType;
   sourceValues: unknown;
+  sourceValidity: Uint8Array<ArrayBuffer> | undefined;
   stringLiteralIds: ShaderStringLiteralIdMap | undefined;
 }
 
 export interface SegmentPropertyShaderDefinition {
   identifier: string;
   dataType: DataType;
+  hasValidity: boolean;
 }
 
 export function encodeSegmentPropertyShaderDefinition(
   definition: SegmentPropertyShaderDefinition,
 ) {
-  return `${definition.identifier}:${definition.dataType}`;
+  return `${definition.identifier}:${definition.dataType}:${definition.hasValidity}`;
 }
 
 interface SegmentPropertyReferencesResult {
@@ -396,6 +399,7 @@ export class SegmentColorUserShaderManager extends RefCounted {
                 index,
               ),
             dataType: DataType.UINT8,
+            hasValidity: false,
           };
     }
     if (prop.type === "numerical") {
@@ -409,6 +413,8 @@ export class SegmentColorUserShaderManager extends RefCounted {
           index,
         ),
         dataType: segmentPropertyMap.numericalProperties[index].dataType,
+        hasValidity:
+          segmentPropertyMap.numericalProperties[index].validity !== undefined,
       };
     }
     const index = segmentPropertyMap.strings.findIndex((p) => p.id === prop.id);
@@ -420,6 +426,7 @@ export class SegmentColorUserShaderManager extends RefCounted {
             index,
           ),
           dataType: DataType.UINT8,
+          hasValidity: false,
         };
   }
 
@@ -585,6 +592,9 @@ export class SegmentColorUserShaderManager extends RefCounted {
     const data = this.segmentPropertyShaderData.get(identifier);
     if (data === undefined) return;
     this.gl.deleteTexture(data.texture);
+    if (data.validityTexture !== undefined) {
+      this.gl.deleteTexture(data.validityTexture);
+    }
     this.segmentPropertyShaderData.delete(identifier);
   }
 
@@ -594,12 +604,14 @@ export class SegmentColorUserShaderManager extends RefCounted {
     dataType: DataType,
     sourceValues: unknown = values,
     stringLiteralIds?: ShaderStringLiteralIdMap,
+    sourceValidity?: Uint8Array<ArrayBuffer>,
   ) {
     const existing = this.segmentPropertyShaderData.get(identifier);
     if (
       existing !== undefined &&
       existing.dataType === dataType &&
       existing.sourceValues === sourceValues &&
+      existing.sourceValidity === sourceValidity &&
       existing.stringLiteralIds === stringLiteralIds
     ) {
       return;
@@ -607,7 +619,16 @@ export class SegmentColorUserShaderManager extends RefCounted {
     this.deleteSegmentPropertyTexture(identifier);
     this.segmentPropertyShaderData.set(identifier, {
       ...createSegmentPropertyTextureData(values, this.gl, dataType),
+      validityTexture:
+        sourceValidity === undefined
+          ? undefined
+          : createSegmentPropertyTextureData(
+              sourceValidity,
+              this.gl,
+              DataType.UINT8,
+            ).texture,
       sourceValues,
+      sourceValidity,
       stringLiteralIds,
     });
   }
@@ -651,6 +672,9 @@ export class SegmentColorUserShaderManager extends RefCounted {
       propertyShaderIdentifier,
       property.values,
       property.dataType,
+      property.values,
+      undefined,
+      property.validity,
     );
     return propertyShaderIdentifier;
   }
@@ -823,7 +847,7 @@ ${parseResult.code}`;
       if (parseResult.preprocessing.stringLiteralIds.size !== 0) {
         addCode(glsl_string);
       }
-      for (const { identifier, dataType } of definitions) {
+      for (const { identifier, dataType, hasValidity } of definitions) {
         const accessHelper = new OneDimensionalTextureAccessHelper(
           `segmentproperty_${identifier}`,
         );
@@ -841,6 +865,24 @@ ${parseResult.code}`;
           ),
         );
         addCode(`highp ${getShaderOutputType(dataType)} ${identifier};\n`);
+        if (hasValidity) {
+          const validityAccessHelper = new OneDimensionalTextureAccessHelper(
+            `segmentproperty_${identifier}_validity`,
+          );
+          builder.addTextureSampler(
+            "usampler2D",
+            `${identifier}_validitySampler`,
+            Symbol.for(`${identifier}_validity`),
+          );
+          validityAccessHelper.defineShader(builder);
+          addCode(
+            validityAccessHelper.getAccessor(
+              `${identifier}_validityRead`,
+              `${identifier}_validitySampler`,
+              DataType.UINT8,
+            ),
+          );
+        }
       }
       addControlsToBuilder(builderState, builder, fragment);
       const loadSegmentPropertiesCode = `
@@ -850,14 +892,16 @@ bool loadSegmentProperties(uint64_t id) {
     return false;
   }
   uint propertyIndex = propertyIndex_64.value[0];
+  bool allPropertiesValid = true;
  ${definitions
-   .map(({ identifier, dataType }) => {
+   .map(({ identifier, dataType, hasValidity }) => {
      return `
   ${identifier} = ${identifier}_read(propertyIndex)${dataType === DataType.FLOAT32 ? "" : ".value"};
+  ${hasValidity ? `allPropertiesValid = (${identifier}_validityRead(propertyIndex).value != 0u) && allPropertiesValid;` : ""}
 `;
    })
    .join("\n")}
-  return true;
+  return allPropertiesValid;
 }`;
       addCode(loadSegmentPropertiesCode);
       addCode(shaderCodeWithLineDirective(userCode));
@@ -964,11 +1008,23 @@ vec4 segmentColorUserShader(uint64_t segmentId) {
       GPUHashTable.get(this.gl, this.segmentPropertyIndexMap),
     );
     for (const identifier of activeSegmentPropertyIdentifiers) {
-      const { texture } = this.segmentPropertyShaderData.get(identifier)!;
+      const { texture, validityTexture } =
+        this.segmentPropertyShaderData.get(identifier)!;
       const textureUnit = shader.textureUnit(Symbol.for(identifier));
       if (textureUnit !== undefined) {
         gl.activeTexture(WebGL2RenderingContext.TEXTURE0 + textureUnit);
         gl.bindTexture(WebGL2RenderingContext.TEXTURE_2D, texture);
+      }
+      if (validityTexture !== undefined) {
+        const validityTextureUnit = shader.textureUnit(
+          Symbol.for(`${identifier}_validity`),
+        );
+        if (validityTextureUnit !== undefined) {
+          gl.activeTexture(
+            WebGL2RenderingContext.TEXTURE0 + validityTextureUnit,
+          );
+          gl.bindTexture(WebGL2RenderingContext.TEXTURE_2D, validityTexture);
+        }
       }
     }
     if (hasSegmentStatedColors) {
@@ -1005,8 +1061,14 @@ vec4 segmentColorUserShader(uint64_t segmentId) {
   }
 
   disposed() {
-    for (const { texture } of this.segmentPropertyShaderData.values()) {
+    for (const {
+      texture,
+      validityTexture,
+    } of this.segmentPropertyShaderData.values()) {
       this.gl.deleteTexture(texture);
+      if (validityTexture !== undefined) {
+        this.gl.deleteTexture(validityTexture);
+      }
     }
     this.segmentPropertyShaderData.clear();
     this.gpuSegmentStatedColorHashTable?.dispose();

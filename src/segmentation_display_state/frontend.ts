@@ -920,8 +920,10 @@ export class SegmentWidgetWithExtraColumnsFactory extends SegmentWidgetFactory<S
       if (index !== -1) {
         const { numericalPropertyWidths } = this;
         for (let i = 0, n = numericalPropertyIndices.length; i < n; ++i) {
-          const value = numericalProperties[i].values[index];
-          if (!Number.isNaN(value)) {
+          const property = numericalProperties[i];
+          const value = property.values[index];
+          const valueElement = container.children[numericalPropertyIndices[i]];
+          if (property.validity?.[index] !== 0 && !Number.isNaN(value)) {
             const s = value.toString();
             const w = s.length;
             if (w > numericalPropertyWidths[i]) {
@@ -931,7 +933,9 @@ export class SegmentWidgetWithExtraColumnsFactory extends SegmentWidgetFactory<S
                 `${w}ch`,
               );
             }
-            container.children[numericalPropertyIndices[i]].textContent = s;
+            valueElement.textContent = s;
+          } else {
+            valueElement.textContent = "";
           }
         }
       }
