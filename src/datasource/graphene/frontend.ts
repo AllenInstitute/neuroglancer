@@ -2127,13 +2127,26 @@ class GrapheneGraphSource extends SegmentationGraphSource {
         // maybe a small fraction have no info
         // sometime l2 is so small (single voxel), it is ignored by l2
         // best to just drop those points
-        centroids = l2_path
+        // note that the l2 cache reports a missing id as an empty object
+        // rather than omitting it, so an absent rep_coord_nm also means
+        // missing; treating it as malformed would throw away the whole
+        // refinement over a single uncached id (common right after an edit)
+        const refined = l2_path
           .map((id) => {
             return verifyOptionalObjectProperty(attributes, id, (x) => {
-              return verifyFloatArray(x["rep_coord_nm"]);
+              return verifyOptionalObjectProperty(
+                x,
+                "rep_coord_nm",
+                verifyFloatArray,
+              );
             });
           })
           .filter((x): x is number[] => x !== undefined);
+        // if nothing could be refined, keep the unrefined path rather than
+        // replacing it with an empty one
+        if (refined.length > 0) {
+          centroids = refined;
+        }
       } catch (e) {
         console.log("e", e);
       }
