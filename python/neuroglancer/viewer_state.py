@@ -23,6 +23,7 @@ import numbers
 import os
 import re
 import typing
+import warnings
 
 import numpy as np
 
@@ -125,6 +126,7 @@ class _ToolMetaclass(type):
             obj=obj,
             _readonly=_readonly,
             kwargs=kwargs,
+            fallback_class=Tool,
         )
 
 
@@ -134,7 +136,13 @@ class Tool(JsonObjectWrapper, metaclass=_ToolMetaclass):
 
     type = wrapped_property("type", str)
 
-    TOOL_TYPE: str
+    TOOL_TYPE: typing.ClassVar[str | None] = None
+    """JSON ``type`` string identifying this tool.
+
+    `None` on `Tool` itself, which is used as an opaque fallback when a state
+    references a tool type this version of the Python package does not know
+    about.
+    """
 
     def __init__(self, *args, **kwargs):
         tool_type = self.TOOL_TYPE
@@ -151,9 +159,56 @@ tool_types = {}
 
 
 def export_tool(tool_class):
+    assert (
+        tool_class.TOOL_TYPE is not None
+    ), f"{tool_class.__name__} must define TOOL_TYPE"
     export(tool_class)
     tool_types[tool_class.TOOL_TYPE] = tool_class
     return tool_class
+
+
+_TOOL_KEY_PATTERN = re.compile("^[A-Z]$")
+
+
+def tool_binding_key(x):
+    """Validates a tool binding key.
+
+    Neuroglancer binds tools to a single uppercase letter; see
+    ``TOOL_KEY_PATTERN`` in :file:`src/ui/tool.ts`.
+    """
+    x = str(x)
+    if _TOOL_KEY_PATTERN.match(x) is None:
+        raise ValueError(
+            f"Invalid tool binding key: {x!r} "
+            "(must be a single uppercase letter A-Z)"
+        )
+    return x
+
+
+_set_type_annotation(tool_binding_key, str)
+
+if typing.TYPE_CHECKING or _BUILDING_DOCS:
+    _ToolBindingsBase = Map[str, Tool]
+else:
+    _ToolBindingsBase = typed_map(key_type=str, value_type=Tool)
+
+
+@export
+class ToolBindings(_ToolBindingsBase):
+    """Maps single-letter hotkeys to tools.
+
+    Keys must be a single uppercase letter (``A``-``Z``). Assigning an invalid
+    key raises `ValueError`; parsing an existing state stays permissive so that
+    states produced by other clients can always be read back.
+
+    Group:
+      json-containers
+    """
+
+    __slots__ = ()
+
+    def __setitem__(self, key, value):
+        super().__setitem__(tool_binding_key(key), value)
 
 
 @export
@@ -361,6 +416,76 @@ class DimensionTool(LayerTool):
     dimension = wrapped_property("dimension", str)
 
 
+@export_tool
+class ToggleBoolPropertyTool(LayerTool):
+    """Toggles a :python:`"bool"` annotation property on the selected annotation.
+
+    Applies to annotation layers with a local annotation source.  `.property`
+    must name an entry in `AnnotationLayer.annotation_properties` whose
+    `~AnnotationPropertySpec.type` is :python:`"bool"`; the client silently
+    drops the binding otherwise.
+
+    `AnnotationPropertySpec.tool` builds the right tool for a property.
+    """
+
+    __slots__ = ()
+    TOOL_TYPE = "toggleBoolProperty"
+    property = wrapped_property("property", str)
+    """Identifier of the annotation property this tool acts on."""
+
+
+@export_tool
+class AnnotateEnumPropertyTool(LayerTool):
+    """Sets an enumerated annotation property on the selected annotation.
+
+    Applies to annotation layers with a local annotation source.  `.property`
+    must name an entry in `AnnotationLayer.annotation_properties` that is
+    numeric **and** declares `~AnnotationPropertySpec.enum_values`; the client
+    silently drops the binding otherwise.
+
+    `AnnotationPropertySpec.tool` builds the right tool for a property.
+    """
+
+    __slots__ = ()
+    TOOL_TYPE = "annotateEnumProperty"
+    property = wrapped_property("property", str)
+    """Identifier of the annotation property this tool acts on."""
+
+
+@export_tool
+class AnnotateNumberPropertyTool(LayerTool):
+    """Sets a numeric annotation property on the selected annotation.
+
+    Applies to annotation layers with a local annotation source.  `.property`
+    must name an entry in `AnnotationLayer.annotation_properties` that is
+    numeric and does **not** declare `~AnnotationPropertySpec.enum_values`; the
+    client silently drops the binding otherwise.
+
+    `AnnotationPropertySpec.tool` builds the right tool for a property.
+    """
+
+    __slots__ = ()
+    TOOL_TYPE = "annotateNumberProperty"
+    property = wrapped_property("property", str)
+    """Identifier of the annotation property this tool acts on."""
+
+
+@export_tool
+class SelectPreviousAnnotationTool(LayerTool):
+    """Selects the previous annotation in the annotation list."""
+
+    __slots__ = ()
+    TOOL_TYPE = "selectPreviousAnnotation"
+
+
+@export_tool
+class SelectNextAnnotationTool(LayerTool):
+    """Selects the next annotation in the annotation list."""
+
+    __slots__ = ()
+    TOOL_TYPE = "selectNextAnnotation"
+
+
 @export
 class SidePanelLocation(JsonObjectWrapper):
     __slots__ = ()
@@ -433,9 +558,7 @@ class Layer(JsonObjectWrapper):
     tab = wrapped_property("tab", optional(str))
     panels = wrapped_property("panels", typed_list(LayerSidePanelState))
     pick = wrapped_property("pick", optional(bool))
-    tool_bindings = wrapped_property(
-        "toolBindings", typed_map(key_type=str, value_type=Tool)
-    )
+    tool_bindings = toolBindings = wrapped_property("toolBindings", ToolBindings)
     tool = wrapped_property("tool", optional(Tool))
 
     @staticmethod
@@ -1046,6 +1169,7 @@ def _factory_new(
     obj: typing.Any,
     _readonly: bool,
     kwargs,
+    fallback_class: type | None = None,
 ):
     if cls is base_class:
         if isinstance(obj, base_class):
@@ -1058,7 +1182,26 @@ def _factory_new(
                 if not isinstance(obj, dict):
                     raise TypeError("Expected dict", obj)
                 t = obj.get("type")  # type: ignore[assignment]
-            cls = registry[t]  # type: ignore[index]
+            resolved = registry.get(t)  # type: ignore[arg-type]
+            if resolved is None:
+                if fallback_class is None or not isinstance(t, str):
+                    raise ValueError(
+                        f"Unknown {base_class.__name__.lower()} type: {t!r}"
+                    )
+                # Preserve forward compatibility: a state produced by a newer
+                # Neuroglancer client may reference a tool type this package
+                # does not know about.  Treating it as opaque round-trips it
+                # unchanged, rather than making one unrecognized entry poison
+                # every sibling entry in the same map.
+                warnings.warn(
+                    f"Unknown {base_class.__name__.lower()} type {t!r}; "
+                    "treating it as opaque.  This may be a typo, or a type "
+                    "from a newer Neuroglancer client.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+                resolved = fallback_class
+            cls = resolved
     return type.__call__(cls, obj, _readonly=_readonly, **kwargs)
 
 
@@ -1151,17 +1294,110 @@ annotation_types = {
 }
 
 
+ANNOTATION_PROPERTY_TYPES = (
+    "rgb",
+    "rgba",
+    "bool",
+    "float32",
+    "uint32",
+    "int32",
+    "uint16",
+    "int16",
+    "uint8",
+    "int8",
+)
+
+_NUMERIC_ANNOTATION_PROPERTY_TYPES = frozenset(ANNOTATION_PROPERTY_TYPES) - {
+    "rgb",
+    "rgba",
+}
+
+
+def annotation_property_type(x):
+    """Validates an annotation property type."""
+    x = str(x)
+    if x not in ANNOTATION_PROPERTY_TYPES:
+        raise ValueError(
+            f"Invalid annotation property type: {x!r} "
+            f"(must be one of {', '.join(ANNOTATION_PROPERTY_TYPES)})"
+        )
+    return x
+
+
+_set_type_annotation(
+    annotation_property_type,
+    typing.Literal[
+        "rgb",
+        "rgba",
+        "bool",
+        "float32",
+        "uint32",
+        "int32",
+        "uint16",
+        "int16",
+        "uint8",
+        "int8",
+    ],
+)
+
+
 @export
 class AnnotationPropertySpec(JsonObjectWrapper):
     __slots__ = ()
     id = wrapped_property("id", str)
-    type = wrapped_property("type", str)
+    type = wrapped_property("type", str, validator=annotation_property_type)
     description = wrapped_property("description", optional(str))
     default = wrapped_property("default", optional(number_or_string))
     enum_values = wrapped_property(
         "enum_values", optional(typed_list(number_or_string))
     )
     enum_labels = wrapped_property("enum_labels", optional(typed_list(str)))
+
+    def tool(self) -> Tool:
+        """Returns the annotation property tool for this property.
+
+        The tool type is chosen from `.type` and `.enum_values`, matching the
+        way the Neuroglancer client resolves these bindings, so the result is
+        guaranteed to survive restore:
+
+        - :python:`"bool"` -> `ToggleBoolPropertyTool`
+        - numeric with `.enum_values` -> `AnnotateEnumPropertyTool`
+        - numeric without `.enum_values` -> `AnnotateNumberPropertyTool`
+
+        Example:
+
+            >>> spec = neuroglancer.AnnotationPropertySpec(
+            ...     id="reviewed", type="bool")
+            >>> layer.tool_bindings["R"] = spec.tool()
+
+        Raises:
+          ValueError: if the property type has no associated tool
+            (:python:`"rgb"` / :python:`"rgba"`), or if `.enum_values` and
+            `.enum_labels` are inconsistent.
+        """
+        property_type = self.type
+        if property_type == "bool":
+            return ToggleBoolPropertyTool(property=self.id)
+        if property_type not in _NUMERIC_ANNOTATION_PROPERTY_TYPES:
+            raise ValueError(
+                f"No annotation property tool is available for property "
+                f"{self.id!r} of type {property_type!r}"
+            )
+        values = self.enum_values
+        labels = self.enum_labels
+        if values is None:
+            if labels is not None:
+                raise ValueError(
+                    f"Property {self.id!r} specifies enum_labels without " "enum_values"
+                )
+            return AnnotateNumberPropertyTool(property=self.id)
+        if labels is None or len(labels) != len(values):
+            raise ValueError(
+                f"Property {self.id!r}: enum_labels must be present and the "
+                f"same length as enum_values ({len(values)} values, "
+                f"{0 if labels is None else len(labels)} labels)"
+            )
+        return AnnotateEnumPropertyTool(property=self.id)
 
 
 @export
@@ -1774,9 +2010,7 @@ class LayerGroupViewer(JsonObjectWrapper):
     projection_depth = projectionDepth = wrapped_property(
         "projectionDepth", LinkedDepthRange
     )
-    tool_bindings = toolBindings = wrapped_property(
-        "toolBindings", typed_map(key_type=str, value_type=Tool)
-    )
+    tool_bindings = toolBindings = wrapped_property("toolBindings", ToolBindings)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1969,9 +2203,7 @@ class ViewerState(JsonObjectWrapper):
             array_wrapper(np.float64, 4), np.array([0, 0, 1, 1], dtype=np.float64)
         ),
     )
-    tool_bindings = toolBindings = wrapped_property(
-        "toolBindings", typed_map(key_type=str, value_type=Tool)
-    )
+    tool_bindings = toolBindings = wrapped_property("toolBindings", ToolBindings)
     tool_palettes = toolPalettes = wrapped_property(
         "toolPalettes", typed_map(key_type=str, value_type=ToolPalette)
     )

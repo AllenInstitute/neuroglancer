@@ -114,5 +114,190 @@ def test_tool():
     assert p2.control == "abc"
 
 
+ANNOTATION_PROPERTY_TOOLS = [
+    ("toggleBoolProperty", "reviewed", viewer_state.ToggleBoolPropertyTool),
+    ("annotateEnumProperty", "status", viewer_state.AnnotateEnumPropertyTool),
+    ("annotateNumberProperty", "score", viewer_state.AnnotateNumberPropertyTool),
+]
+
+ANNOTATION_NAV_TOOLS = [
+    ("selectPreviousAnnotation", viewer_state.SelectPreviousAnnotationTool),
+    ("selectNextAnnotation", viewer_state.SelectNextAnnotationTool),
+]
+
+
+@pytest.mark.parametrize("tool_type,prop,cls", ANNOTATION_PROPERTY_TOOLS)
+def test_annotation_property_tool(tool_type, prop, cls):
+    tool = cls(property=prop)
+    assert tool.to_json() == {"type": tool_type, "property": prop}
+    assert tool.property == prop
+
+    from_json = viewer_state.Tool({"type": tool_type, "property": prop})
+    assert isinstance(from_json, cls)
+    assert from_json.property == prop
+
+
+@pytest.mark.parametrize("tool_type,cls", ANNOTATION_NAV_TOOLS)
+def test_annotation_navigation_tool(tool_type, cls):
+    assert cls().to_json() == {"type": tool_type}
+    assert isinstance(viewer_state.Tool(tool_type), cls)
+    # Neuroglancer serializes these as a bare string and normalizes a bare
+    # string back to object form on restore, so emitting the object form (as
+    # every other Python tool does) round-trips correctly.
+    assert viewer_state.Tool(tool_type).to_json() == {"type": tool_type}
+
+
+def test_annotation_property_tool_bindings_from_state():
+    """Regression test: this raised ``KeyError`` before the tools were registered."""
+    state = viewer_state.ViewerState(
+        {
+            "layers": [
+                {
+                    "name": "a",
+                    "type": "annotation",
+                    "source": "local://annotations",
+                    "annotationProperties": [
+                        {"id": "reviewed", "type": "bool"},
+                        {
+                            "id": "status",
+                            "type": "uint8",
+                            "enum_values": [0, 1, 2],
+                            "enum_labels": ["unknown", "good", "bad"],
+                        },
+                        {"id": "score", "type": "float32"},
+                    ],
+                    "toolBindings": {
+                        "R": {"type": "toggleBoolProperty", "property": "reviewed"},
+                        "S": {"type": "annotateEnumProperty", "property": "status"},
+                        "E": {"type": "annotateNumberProperty", "property": "score"},
+                        "P": "selectPreviousAnnotation",
+                        "N": "selectNextAnnotation",
+                    },
+                }
+            ]
+        }
+    )
+    bindings = state.layers["a"].tool_bindings
+    assert isinstance(bindings["R"], viewer_state.ToggleBoolPropertyTool)
+    assert bindings["R"].property == "reviewed"
+    assert isinstance(bindings["S"], viewer_state.AnnotateEnumPropertyTool)
+    assert bindings["S"].property == "status"
+    assert isinstance(bindings["E"], viewer_state.AnnotateNumberPropertyTool)
+    assert bindings["E"].property == "score"
+    assert isinstance(bindings["P"], viewer_state.SelectPreviousAnnotationTool)
+    assert isinstance(bindings["N"], viewer_state.SelectNextAnnotationTool)
+
+
+def test_unknown_tool_type_is_opaque():
+    state = viewer_state.ViewerState(
+        {
+            "toolBindings": {
+                "A": {"type": "futureTool", "extra": 1},
+                "B": "selectNextAnnotation",
+            }
+        }
+    )
+    with pytest.warns(UserWarning, match="Unknown tool type"):
+        bindings = state.tool_bindings
+    # Unrecognized, but round-trips exactly, including unknown fields.
+    assert type(bindings["A"]) is viewer_state.Tool
+    assert bindings["A"].type == "futureTool"
+    assert bindings["A"].to_json() == {"type": "futureTool", "extra": 1}
+    # A sibling binding in the same map still resolves.
+    assert isinstance(bindings["B"], viewer_state.SelectNextAnnotationTool)
+
+
+def test_invalid_tool_type():
+    with pytest.raises(ValueError, match="Unknown tool type"):
+        viewer_state.Tool({})
+    with pytest.raises(ValueError, match="Unknown tool type"):
+        viewer_state.Tool({"type": 5})
+
+
+@pytest.mark.parametrize("key", ["a", "AB", "1", "", "keyq"])
+def test_invalid_tool_binding_key(key):
+    bindings = viewer_state.ToolBindings()
+    with pytest.raises(ValueError, match="Invalid tool binding key"):
+        bindings[key] = viewer_state.SelectNextAnnotationTool()
+
+
+def test_tool_binding_key_validation_is_write_only():
+    bindings = viewer_state.ToolBindings()
+    bindings["R"] = viewer_state.SelectNextAnnotationTool()
+    assert bindings.to_json() == {"R": {"type": "selectNextAnnotation"}}
+
+    # Reading back a state written by another client stays permissive.
+    state = viewer_state.ViewerState({"toolBindings": {"a": "selectNextAnnotation"}})
+    assert list(state.tool_bindings.keys()) == ["a"]
+
+
+def test_layer_tool_bindings_alias():
+    layer = viewer_state.Layer(
+        toolBindings={"R": viewer_state.SelectNextAnnotationTool()}
+    )
+    assert layer.tool_bindings.to_json() == {"R": {"type": "selectNextAnnotation"}}
+
+
+@pytest.mark.parametrize("property_type", viewer_state.ANNOTATION_PROPERTY_TYPES)
+def test_annotation_property_type_valid(property_type):
+    spec = viewer_state.AnnotationPropertySpec(id="a", type=property_type)
+    assert spec.type == property_type
+
+
+@pytest.mark.parametrize("property_type", ["float64", "string", "uint64"])
+def test_annotation_property_type_validation_is_write_only(property_type):
+    with pytest.raises(ValueError, match="Invalid annotation property type"):
+        viewer_state.AnnotationPropertySpec(id="a", type=property_type)
+
+    spec = viewer_state.AnnotationPropertySpec(id="a", type="uint8")
+    with pytest.raises(ValueError, match="Invalid annotation property type"):
+        spec.type = property_type
+
+    # Parsing an existing spec stays permissive, so odd on-disk precomputed
+    # `info` files remain readable.
+    parsed = viewer_state.AnnotationPropertySpec({"id": "a", "type": property_type})
+    assert parsed.type == property_type
+
+
+def test_annotation_property_spec_tool():
+    bool_spec = viewer_state.AnnotationPropertySpec(id="reviewed", type="bool")
+    assert isinstance(bool_spec.tool(), viewer_state.ToggleBoolPropertyTool)
+    assert bool_spec.tool().property == "reviewed"
+
+    enum_spec = viewer_state.AnnotationPropertySpec(
+        id="status", type="uint8", enum_values=[0, 1], enum_labels=["a", "b"]
+    )
+    assert isinstance(enum_spec.tool(), viewer_state.AnnotateEnumPropertyTool)
+
+    number_spec = viewer_state.AnnotationPropertySpec(id="score", type="float32")
+    assert isinstance(number_spec.tool(), viewer_state.AnnotateNumberPropertyTool)
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"id": "tint", "type": "rgb"}, "No annotation property tool"),
+        ({"id": "tint", "type": "rgba"}, "No annotation property tool"),
+        (
+            {
+                "id": "status",
+                "type": "uint8",
+                "enum_values": [0, 1],
+                "enum_labels": ["a"],
+            },
+            "same length as enum_values",
+        ),
+        (
+            {"id": "status", "type": "uint8", "enum_labels": ["a"]},
+            "enum_labels without enum_values",
+        ),
+    ],
+)
+def test_annotation_property_spec_tool_invalid(kwargs, match):
+    spec = viewer_state.AnnotationPropertySpec(**kwargs)
+    with pytest.raises(ValueError, match=match):
+        spec.tool()
+
+
 def test_annotation():
     viewer_state.PointAnnotation(point=[1])

@@ -43,6 +43,8 @@ from .viewer_state import (
     DimensionScale,  # noqa: F401
     CoordinateArray,  # noqa: F401
     Tool,  # noqa: F401
+    LayerTool,  # noqa: F401
+    ToolBindings,  # noqa: F401
     PlacePointTool,  # noqa: F401
     PlaceLineTool,  # noqa: F401
     PlaceBoundingBoxTool,  # noqa: F401
@@ -75,7 +77,13 @@ from .viewer_state import (
     SplitSegmentsTool,  # noqa: F401
     SelectSegmentsTool,  # noqa: F401
     DimensionTool,  # noqa: F401
+    ToggleBoolPropertyTool,  # noqa: F401
+    AnnotateEnumPropertyTool,  # noqa: F401
+    AnnotateNumberPropertyTool,  # noqa: F401
+    SelectPreviousAnnotationTool,  # noqa: F401
+    SelectNextAnnotationTool,  # noqa: F401
     SidePanelLocation,  # noqa: F401
+    ToolPalette,  # noqa: F401
     SelectedLayerState,  # noqa: F401
     StatisticsDisplayState,  # noqa: F401
     LayerSidePanelState,  # noqa: F401
