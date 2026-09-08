@@ -22,7 +22,7 @@ import svg_controls_alt from "ikonate/icons/controls-alt.svg?raw";
 import svg_layers from "ikonate/icons/layers.svg?raw";
 import svg_list from "ikonate/icons/list.svg?raw";
 import svg_settings from "ikonate/icons/settings.svg?raw";
-import { debounce } from "lodash-es";
+import { debounce, throttle } from "lodash-es";
 import {
   makeCoordinateSpace,
   TrackableCoordinateSpace,
@@ -167,6 +167,15 @@ declare let NEUROGLANCER_CREDIT_LINK: CreditLink | CreditLink[] | undefined;
 export class InputEventBindings extends DataPanelInputEventBindings {
   global = new EventActionMap();
 }
+
+/**
+ * Minimum interval between redraws triggered by chunks becoming visible.
+ *
+ * Small enough that streaming data still appears to fill in continuously, large
+ * enough that rendering does not monopolize the GPU command buffer and stall the
+ * texture uploads that share it.
+ */
+const CHUNK_ARRIVAL_REDRAW_INTERVAL_MS = 300;
 
 export const VIEWER_TOP_ROW_CONFIG_OPTIONS = [
   "showHelpButton",
@@ -754,12 +763,30 @@ export class Viewer extends RefCounted implements ViewerState {
       }),
     );
 
-    this.registerDisposer(
-      this.dataContext.chunkQueueManager.visibleChunksChanged.add(() => {
+    // Chunk arrivals fire this signal once per chunk, hundreds of times while a
+    // large volume streams in. Redrawing for each arrival keeps the GPU process
+    // saturated, and because texture uploads travel over the same GPU command
+    // buffer as rendering commands, the uploads then block in
+    // `CommandBufferProxyImpl::WaitForToken`. Measured on a 421-chunk exaSPIM
+    // volume: 17 s of cumulative stall, so a chunk became visible a median of
+    // 5 s after its bytes were already decoded and in hand.
+    //
+    // Coalescing arrival-driven redraws leaves the command buffer drained.
+    // `throttle` runs on both the leading and trailing edge, so the first
+    // arrival still paints immediately and the final state is never left
+    // undrawn; only chunk arrivals are throttled, so camera and UI changes
+    // continue to schedule a redraw at once.
+    const scheduleRedrawForChunkArrival = this.registerCancellable(
+      throttle(() => {
         if (this.visible) {
           display.scheduleRedraw();
         }
-      }),
+      }, CHUNK_ARRIVAL_REDRAW_INTERVAL_MS),
+    );
+    this.registerDisposer(
+      this.dataContext.chunkQueueManager.visibleChunksChanged.add(
+        scheduleRedrawForChunkArrival,
+      ),
     );
 
     this.makeUI();
