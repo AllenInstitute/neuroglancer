@@ -177,11 +177,14 @@ interface ShaderSetupUniforms {
   uMaxSteps: number;
   uBrightnessFactor: number;
   uGain: number;
+  uFogDensity: number;
+  uFogStartDepth: number;
   uPickId: number;
   uLowerClipBound: vec3;
   uUpperClipBound: vec3;
   uModelViewProjectionMatrix: mat4;
   uInvModelViewProjectionMatrix: mat4;
+  uModelViewMatrix: mat4;
 }
 
 /**
@@ -408,6 +411,12 @@ void emitRGBA(vec4 rgba) {
 
           builder.addUniform("highp float", "uBrightnessFactor");
           builder.addUniform("highp float", "uGain");
+          // uFogDensity is declared by the perspective emitter (see glsl_perspectiveFog); it is
+          // deliberately not declared here, since doing so would be a redefinition.
+          // Chunk-layout coordinates -> eye space, where the camera is at the origin and the metric
+          // is physical. Fog uses the true radial distance in that space so that attenuation
+          // depends only on how far a sample is, not on view direction or screen position.
+          builder.addUniform("highp mat4", "uModelViewMatrix");
           builder.addUniform("highp uint", "uPickId");
           builder.addVarying("highp vec4", "vNormalizedPosition");
           builder.addTextureSampler(
@@ -426,6 +435,8 @@ gl_Position.z = 0.0;
           builder.addFragmentCode(`
 vec3 curChunkPosition;
 float depthAtRayPosition;
+// Set once per ray step; multiplies the sampled data value to produce depth fog.
+float fogAttenuation;
 vec4 outputColor;
 float revealage;
 void userMain();
@@ -435,6 +446,10 @@ void userMain();
             chunkFormat,
             shaderParametersState.numChannelDimensions,
             "curChunkPosition",
+            // Depth fog scales the sampled value, so distant samples slide back down the user's
+            // colormap rather than fading toward grey. The picking pass sets uFogDensity to 0, so
+            // picking always sees raw values.
+            "fogAttenuation",
           );
           builder.addFragmentCode([
             glsl_emitIntensity,
@@ -509,6 +524,14 @@ void main() {
     if (rayPositionBehindOpaqueObject) {
       break;
     }
+
+    // Exponential extinction with eye-space depth along the view axis. Measuring in eye space
+    // rather than as a fraction along the ray keeps attenuation independent of view direction and
+    // of position on screen, and matches how geometry fog measures depth in
+    // perspective_view/panel.ts so a fogged mesh and this volume agree.
+    // uFogDensity == 0 leaves this exactly 1.0.
+    fogAttenuation = perspectiveFogFromEyeDepth(
+        -(uModelViewMatrix * vec4(position, 1.0)).z);
 
     curChunkPosition = position - uTranslation;
     userMain();
@@ -949,6 +972,13 @@ gl_Position = uModelViewProjectionMatrix * vec4(position, 1.0);
         getFrustumPlanes(clippingPlanes, modelViewProjection);
         const inverseModelViewProjection = mat4.create();
         mat4.invert(inverseModelViewProjection, modelViewProjection);
+        // Chunk-layout -> eye space, for fog distance.
+        const modelView = mat4.multiply(
+          mat4.create(),
+          projectionParameters.viewMatrix,
+          chunkLayout.transform,
+        );
+
         const { near, far, adjustedNear, adjustedFar } =
           getVolumeRenderingNearFarBounds(
             clippingPlanes,
@@ -966,6 +996,15 @@ gl_Position = uModelViewProjectionMatrix * vec4(position, 1.0);
           uMaxSteps: this.depthSamplesTarget.value,
           uBrightnessFactor: brightnessFactor,
           uGain: Math.exp(this.gain.value),
+          // Two multiplicative components, so changing the fog amount rescales the whole curve
+          // without altering its shape: the user's amount, times a zoom term. The zoom term is
+          // 1 when fogScaling is 0 (fog spans the view identically at every zoom), and grows as
+          // the visible depth shrinks when fogScaling is positive (denser as you zoom in).
+          // Scene-wide fog, computed once by the perspective panel so that this volume and any
+          // meshes, skeletons or annotations in the same view share exactly one value.
+          uFogDensity: renderContext.fogDensity,
+          uFogStartDepth: renderContext.fogStartDepth,
+          uModelViewMatrix: modelView,
           uPickId: pickId,
           uLowerClipBound: transformedSource.lowerClipDisplayBound,
           uUpperClipBound: transformedSource.upperClipDisplayBound,
@@ -1123,7 +1162,11 @@ gl_Position = uModelViewProjectionMatrix * vec4(position, 1.0);
                 shaderResult.parameters.parseResult,
               );
               this.bindDepthBufferTexture(renderContext, shader);
-              this.setShaderUniforms(shader, shaderSetupUniforms);
+              // Picking must reflect the real data, not the fogged appearance.
+              this.setShaderUniforms(shader, {
+                ...shaderSetupUniforms!,
+                uFogDensity: 0,
+              });
               chunkFormat.beginDrawing(gl, shader);
               chunkFormat.beginSource(gl, shader);
             }
@@ -1343,6 +1386,11 @@ gl_Position = uModelViewProjectionMatrix * vec4(position, 1.0);
       false,
       uniforms.uInvModelViewProjectionMatrix,
     );
+    gl.uniformMatrix4fv(
+      shader.uniform("uModelViewMatrix"),
+      false,
+      uniforms.uModelViewMatrix,
+    );
     gl.uniform1f(
       shader.uniform("uNearLimitFraction"),
       uniforms.uNearLimitFraction,
@@ -1352,6 +1400,8 @@ gl_Position = uModelViewProjectionMatrix * vec4(position, 1.0);
       uniforms.uFarLimitFraction,
     );
     gl.uniform1f(shader.uniform("uGain"), uniforms.uGain);
+    gl.uniform1f(shader.uniform("uFogDensity"), uniforms.uFogDensity);
+    gl.uniform1f(shader.uniform("uFogStartDepth"), uniforms.uFogStartDepth);
     gl.uniform1ui(shader.uniform("uPickId"), uniforms.uPickId);
     gl.uniform1i(shader.uniform("uMaxSteps"), uniforms.uMaxSteps);
     gl.uniform3fv(shader.uniform("uLowerClipBound"), uniforms.uLowerClipBound);

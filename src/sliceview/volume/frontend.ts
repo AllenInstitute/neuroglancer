@@ -16,10 +16,8 @@
 
 import type { ChunkManager } from "#src/chunk_manager/frontend.js";
 import type { ChunkChannelAccessParameters } from "#src/render_coordinate_transform.js";
-import type {
-  DataType,
-  SliceViewChunkSpecification,
-} from "#src/sliceview/base.js";
+import type { SliceViewChunkSpecification } from "#src/sliceview/base.js";
+import { DATA_TYPE_SIGNED, DataType } from "#src/util/data_type.js";
 import {
   MultiscaleSliceViewChunkSource,
   SliceViewChunk,
@@ -88,11 +86,45 @@ export interface ChunkFormat {
   beginSource: (gl: GL, shader: ShaderProgram) => void;
 }
 
+/**
+ * Returns a GLSL expression scaling `valueExpr` by the float expression `scaleExpr`, preserving the
+ * data type. Integer types round-trip through float; 64-bit types are returned unscaled since they
+ * have no float representation in the shader.
+ */
+function scaleDataValueExpr(
+  dataType: DataType,
+  valueExpr: string,
+  scaleExpr: string,
+): string {
+  switch (dataType) {
+    case DataType.FLOAT32:
+      return `((${valueExpr}) * (${scaleExpr}))`;
+    case DataType.UINT64:
+      // Represented as a uvec2 pair with no float form; left unscaled.
+      return valueExpr;
+    default: {
+      // Every other type is a single-field struct (uint16_t, int32_t, ...), so it has to be
+      // unwrapped with toRaw(), scaled as a float, and rebuilt -- exactly as mixLinear does for
+      // these types. Attenuation is <= 1, so this cannot overflow the original range.
+      const shaderType = getShaderType(dataType);
+      const intType = DATA_TYPE_SIGNED[dataType] ? "int" : "uint";
+      return `${shaderType}(${intType}(round(float(toRaw(${valueExpr})) * (${scaleExpr}))))`;
+    }
+  }
+}
+
 export function defineChunkDataShaderAccess(
   builder: ShaderBuilder,
   chunkFormat: ChunkFormat,
   numChannelDimensions: number,
   getPositionWithinChunkExpr: string,
+  /**
+   * Optional GLSL float expression multiplying every value returned by `getDataValue` and
+   * `getInterpolatedDataValue`. The volume renderer uses this for depth fog, so fading applies to
+   * the value the user's shader sees -- walking it back down the colormap -- rather than to the
+   * emitted colour, which would blend toward greys the colormap may not contain.
+   */
+  valueScaleExpr?: string,
 ) {
   const { dataType } = chunkFormat;
   chunkFormat.defineShader(builder, numChannelDimensions);
@@ -109,10 +141,14 @@ export function defineChunkDataShaderAccess(
   }
 
   builder.addFragmentCode(glsl_mixLinear);
+  const scale = (expr: string) =>
+    valueScaleExpr === undefined
+      ? expr
+      : scaleDataValueExpr(dataType, expr, valueScaleExpr);
   const dataAccessCode = `
 ${getShaderType(dataType)} getDataValue(${dataAccessChannelParams}) {
   highp ivec3 p = ivec3(max(vec3(0.0, 0.0, 0.0), min(floor(${getPositionWithinChunkExpr}), uChunkDataSize - 1.0)));
-  return getDataValueAt(p${dataAccessChannelArgs});
+  return ${scale(`getDataValueAt(p${dataAccessChannelArgs})`)};
 }
 ${getShaderType(
   dataType,
@@ -135,7 +171,7 @@ ${getShaderType(
     }
     xvalues[ix] = mixLinear(yvalues[0], yvalues[1], mixCoeff.y);
   }
-  return mixLinear(xvalues[0], xvalues[1], mixCoeff.x);
+  return ${scale("mixLinear(xvalues[0], xvalues[1], mixCoeff.x)")};
 }
 `;
   builder.addFragmentCode(dataAccessCode);
