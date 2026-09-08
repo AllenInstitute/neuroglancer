@@ -46,6 +46,14 @@ function getCodecResolver(obj: unknown): {
 export interface CodecResolver {
   name: string;
   kind: CodecKind;
+
+  /**
+   * If set on an array -> bytes codec, the encoded chunk is not decoded to a dense array. Decoding
+   * stops after the bytes -> bytes stage and the buffer is passed through to the named chunk
+   * format. Such a codec cannot be preceded by any array -> array codec, since those would be
+   * applied to a buffer that is not an array.
+   */
+  passthroughChunkFormat?: string;
 }
 
 export interface ArrayToArrayCodecResolver<Configuration>
@@ -151,9 +159,18 @@ export function parseCodecChainSpec(
     layoutInfo: finalLayoutInfo,
     encodedSize: initialEncodedSize,
     shardingInfo,
+    passthroughChunkFormat,
   } = (() => {
     const { resolver, configuration: initialConfiguration } = codecSpecs[i];
     const arrayToBytesResolver = resolver as ArrayToBytesCodecResolver<unknown>;
+    const passthroughChunkFormat = resolver.passthroughChunkFormat;
+    if (passthroughChunkFormat !== undefined && arrayToArray.length !== 0) {
+      throw new Error(
+        `${JSON.stringify(resolver.name)} codec does not decode to an array, and therefore ` +
+          "cannot be preceded by array -> array codecs: " +
+          arrayToArray.map((c) => JSON.stringify(c.name)).join(", "),
+      );
+    }
     const { configuration, shardingInfo, encodedSize } =
       arrayToBytesResolver.resolve(initialConfiguration, decodedArrayInfo);
     if (shardingInfo !== undefined) {
@@ -172,7 +189,13 @@ export function parseCodecChainSpec(
       kind: CodecKind.arrayToBytes,
       configuration,
     };
-    return { codecSpec, layoutInfo, encodedSize, shardingInfo };
+    return {
+      codecSpec,
+      layoutInfo,
+      encodedSize,
+      shardingInfo,
+      passthroughChunkFormat,
+    };
   })();
 
   layoutInfo[i] = finalLayoutInfo;
@@ -222,5 +245,6 @@ export function parseCodecChainSpec(
     layoutInfo,
     shardingInfo,
     encodedSize,
+    passthroughChunkFormat,
   };
 }

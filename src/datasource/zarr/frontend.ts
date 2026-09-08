@@ -35,6 +35,7 @@ import { VolumeChunkSourceParameters } from "#src/datasource/zarr/base.js";
 import "#src/datasource/zarr/codec/bytes/resolve.js";
 import "#src/datasource/zarr/codec/crc32c/resolve.js";
 import "#src/datasource/zarr/codec/gzip/resolve.js";
+import "#src/datasource/zarr/codec/nanovdb/resolve.js";
 import "#src/datasource/zarr/codec/sharding_indexed/resolve.js";
 import "#src/datasource/zarr/codec/transpose/resolve.js";
 import type {
@@ -153,6 +154,11 @@ export class MultiscaleVolumeChunkSource extends GenericMultiscaleVolumeChunkSou
           chunkDataSizes: [permutedChunkShape],
           volumeSourceOptions,
           fillValue: metadata.fillValue,
+          // Left undefined rather than false for ordinary sources, so their chunk specification
+          // -- which is serialized over RPC and snapshotted by the datasource tests -- is
+          // unchanged by the existence of this codec.
+          nanovdbEncoding:
+            codecs.passthroughChunkFormat === "nanovdb" ? true : undefined,
         }).map(
           (spec): SliceViewSingleResolutionSource<VolumeChunkSource> => ({
             chunkSource: this.chunkManager.getChunkSource(

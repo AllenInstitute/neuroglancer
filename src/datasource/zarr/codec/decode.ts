@@ -107,6 +107,12 @@ export async function decodeArray(
     encoded = await impl.decode(codec.configuration, encoded, signal);
   }
 
+  if (codecs.passthroughChunkFormat !== undefined) {
+    // The array -> bytes codec produces a self-describing buffer that is consumed directly by a
+    // GPU chunk format, so it is neither decoded here nor followed by array -> array codecs.
+    return encoded;
+  }
+
   let decoded: ArrayBufferView<ArrayBuffer>;
   {
     const codec = codecs[CodecKind.arrayToBytes];

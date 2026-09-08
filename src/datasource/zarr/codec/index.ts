@@ -36,6 +36,13 @@ export interface CodecChainSpec {
   layoutInfo: CodecArrayLayoutInfo[];
   shardingInfo?: ShardingInfo;
   encodedSize: (number | undefined)[];
+
+  /**
+   * If defined, the array -> bytes codec does not produce a dense array: decoding stops after the
+   * bytes -> bytes stage and the resulting buffer is handed to the named GPU chunk format, which
+   * interprets it directly. See codec/nanovdb/resolve.ts.
+   */
+  passthroughChunkFormat?: string;
 }
 
 export interface ShardingInfo {
