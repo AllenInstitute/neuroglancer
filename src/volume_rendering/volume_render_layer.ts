@@ -451,6 +451,18 @@ void userMain();
             // picking always sees raw values.
             "fogAttenuation",
           );
+          // Empty-space skipping. Minimum intensity projection is excluded because there the
+          // background value is a legitimate result, so stepping over it would change the answer.
+          const useEmptySpaceSkip =
+            chunkFormat.defineEmptySpaceSkip !== undefined &&
+            shaderParametersState.mode !== VolumeRenderingModes.MIN;
+          if (useEmptySpaceSkip) {
+            chunkFormat.defineEmptySpaceSkip!(builder);
+          } else {
+            builder.addFragmentCode(`
+int getEmptySpaceSkip(vec3 posInChunk, vec3 stepVector) { return 0; }
+`);
+          }
           builder.addFragmentCode([
             glsl_emitIntensity,
             glsl_rgbaEmit,
@@ -512,6 +524,8 @@ void main() {
   vec4 clipNearPoint = uModelViewProjectionMatrix * vec4(nearPoint, 1.0);
   vec4 clipFarPoint = uModelViewProjectionMatrix * vec4(farPoint, 1.0);
   float depthInBuffer = texture(uDepthSampler, (normalizedPosition + 1.0) * 0.5).r;
+  // Per-step displacement, in chunk coordinates (uTranslation is constant along the ray).
+  vec3 uStepVectorInChunk = rayVector * stepSize;
   for (int rayStep = startStep; rayStep < endStep; ++rayStep) {
     // linearly interpolate position and clip space position along the ray
     float rayFraction = uNearLimitFraction + float(rayStep) * stepSize;
@@ -534,6 +548,14 @@ void main() {
         -(uModelViewMatrix * vec4(position, 1.0)).z);
 
     curChunkPosition = position - uTranslation;
+    // Step over regions the chunk format reports as background. rayStep stays on the globally
+    // aligned lattice, so compositing and opacity correction are unchanged; the skipped samples
+    // would have contributed nothing.
+    int emptySkip = getEmptySpaceSkip(curChunkPosition, uStepVectorInChunk);
+    if (emptySkip > 0) {
+      rayStep += emptySkip;
+      continue;
+    }
     userMain();
     ${glsl_handleMaxProjectionUpdate}
   }
