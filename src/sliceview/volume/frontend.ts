@@ -84,6 +84,23 @@ export interface ChunkFormat {
    * Called just before drawing chunks for the source.
    */
   beginSource: (gl: GL, shader: ShaderProgram) => void;
+
+  /**
+   * Optional. If defined, should define a fragment shader function:
+   *
+   *   int getEmptySpaceSkip(vec3 positionWithinChunk, vec3 stepVector);
+   *
+   * returning the number of *additional* ray steps that may be skipped because the region
+   * containing `positionWithinChunk` holds nothing but the background value, where `stepVector` is
+   * the per-step displacement in chunk coordinates. Returning 0 is always safe and is what formats
+   * that do not implement this do.
+   *
+   * Skipping keeps the ray on the same globally-aligned step lattice, so cross-chunk compositing
+   * and the opacity correction are unaffected. It assumes background voxels contribute nothing to
+   * the image, which is why the volume renderer disables it for minimum intensity projection, where
+   * the background *is* the answer.
+   */
+  defineEmptySpaceSkip?: (builder: ShaderBuilder) => void;
 }
 
 /**
@@ -240,6 +257,7 @@ export class VolumeChunkSource
       compressedSegmentationBlockSize:
         s.compressedSegmentationBlockSize &&
         Array.from(s.compressedSegmentationBlockSize),
+      ...(s.nanovdbEncoding ? { nanovdbEncoding: true } : {}),
       baseVoxelOffset: Array.from(s.baseVoxelOffset),
     };
   }

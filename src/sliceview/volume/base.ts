@@ -82,6 +82,12 @@ export interface VolumeChunkSpecificationBaseOptions
    * size.
    */
   compressedSegmentationBlockSize?: vec3;
+
+  /**
+   * If true, each chunk is stored as a NanoVDB grid buffer that is uploaded to the GPU verbatim
+   * and traversed in the shader, rather than as a dense array of voxels.
+   */
+  nanovdbEncoding?: boolean;
 }
 
 export interface VolumeChunkSpecificationOptions
@@ -131,6 +137,8 @@ export interface VolumeChunkSpecification
   baseVoxelOffset: Float32Array;
   dataType: DataType;
   compressedSegmentationBlockSize: vec3 | undefined;
+  /** Omitted entirely unless true, so ordinary sources serialize exactly as they did before. */
+  nanovdbEncoding?: boolean;
   fillValue: number | bigint;
 }
 
@@ -142,11 +150,13 @@ export function makeVolumeChunkSpecification(
     dataType,
     fillValue = dataType === DataType.UINT64 ? 0n : 0,
     compressedSegmentationBlockSize,
+    nanovdbEncoding,
   } = options;
   const { baseVoxelOffset = new Float32Array(rank) } = options;
   return {
     ...makeSliceViewChunkSpecification(options),
     compressedSegmentationBlockSize,
+    ...(nanovdbEncoding ? { nanovdbEncoding: true } : {}),
     baseVoxelOffset,
     dataType,
     fillValue,

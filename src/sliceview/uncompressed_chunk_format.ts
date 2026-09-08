@@ -410,7 +410,10 @@ export class UncompressedChunkFormatHandler
 }
 
 registerChunkFormatHandler((gl: GL, spec: VolumeChunkSpecification) => {
-  if (spec.compressedSegmentationBlockSize == null) {
+  // This is the fallback format, so it must decline any spec that names a more
+  // specific one; otherwise it claims those chunks before their own handler is
+  // consulted.
+  if (spec.compressedSegmentationBlockSize == null && !spec.nanovdbEncoding) {
     return new UncompressedChunkFormatHandler(gl, spec);
   }
   return null;
