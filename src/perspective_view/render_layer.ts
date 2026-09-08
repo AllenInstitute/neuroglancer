@@ -37,6 +37,15 @@ export interface PerspectiveViewRenderContext
   emitter: ShaderModule;
 
   /**
+   * Scene-wide fog extinction per unit of eye-space depth, already including the zoom term; 0
+   * disables fog. Layers pass this to `setPerspectiveFogUniforms` after binding their shader.
+   */
+  fogDensity: number;
+
+  /** Eye-space depth of the focal point, where fog begins. */
+  fogStartDepth: number;
+
+  /**
    * Specifies whether the emitted color value will be used.
    */
   emitColor: boolean;

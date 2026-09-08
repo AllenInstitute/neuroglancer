@@ -92,6 +92,8 @@ export interface LayerGroupViewerState {
   mouseState: MouseSelectionState;
   showAxisLines: TrackableBoolean;
   wireFrame: TrackableBoolean;
+  fog: WatchableValueInterface<number>;
+  fogScaling: WatchableValueInterface<number>;
   enableAdaptiveDownsampling: TrackableBoolean;
   showScaleBar: TrackableBoolean;
   scaleBarOptions: TrackableScaleBarOptions;
@@ -354,6 +356,12 @@ export class LayerGroupViewer extends RefCounted {
   }
   get showAxisLines() {
     return this.viewerState.showAxisLines;
+  }
+  get fog() {
+    return this.viewerState.fog;
+  }
+  get fogScaling() {
+    return this.viewerState.fogScaling;
   }
   get wireFrame() {
     return this.viewerState.wireFrame;

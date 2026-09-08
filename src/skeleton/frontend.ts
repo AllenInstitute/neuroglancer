@@ -18,6 +18,7 @@ import { ChunkState, LayerChunkProgressInfo } from "#src/chunk_manager/base.js";
 import type { ChunkManager } from "#src/chunk_manager/frontend.js";
 import { Chunk, ChunkSource } from "#src/chunk_manager/frontend.js";
 import type { LayerView, VisibleLayerInfo } from "#src/layer/index.js";
+import { setPerspectiveFogUniforms } from "#src/perspective_view/fog.js";
 import type { PerspectivePanel } from "#src/perspective_view/panel.js";
 import type { PerspectiveViewRenderContext } from "#src/perspective_view/render_layer.js";
 import { PerspectiveViewRenderLayer } from "#src/perspective_view/render_layer.js";
@@ -325,6 +326,9 @@ void emitDefault() {
     const { viewProjectionMat } = renderContext.projectionParameters;
     const mat = mat4.multiply(tempMat2, viewProjectionMat, modelMatrix);
     gl.uniformMatrix4fv(shader.uniform("uProjection"), false, mat);
+    // Covers both the edge and node shaders, and both the perspective and slice-view paths; the
+    // slice-view context carries no fog, so this is a no-op there.
+    setPerspectiveFogUniforms(gl, shader, renderContext);
     this.vertexIdHelper.enable();
   }
 

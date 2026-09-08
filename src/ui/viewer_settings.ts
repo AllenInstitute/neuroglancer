@@ -103,6 +103,16 @@ export class ViewerSettingsPanel extends SidePanel {
       viewer.chunkQueueManager.capacities.download.itemLimit,
     );
 
+    const addNumberWidget = (label: string, value: TrackableValue<number>) => {
+      const widget = this.registerDisposer(
+        new NumberInputWidget(value, { label }),
+      );
+      widget.element.classList.add("neuroglancer-settings-limit-widget");
+      scroll.appendChild(widget.element);
+    };
+    addNumberWidget("Fog (3-d)", viewer.fog);
+    addNumberWidget("Fog zoom scaling (3-d)", viewer.fogScaling);
+
     const addCheckbox = (
       label: string,
       value: WatchableValueInterface<boolean>,

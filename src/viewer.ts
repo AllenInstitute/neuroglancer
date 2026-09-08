@@ -73,6 +73,7 @@ import { overlaysOpen } from "#src/overlay.js";
 import { ScreenshotHandler } from "#src/python_integration/screenshots.js";
 import { allRenderLayerRoles, RenderLayerRole } from "#src/renderlayer.js";
 import { StatusMessage } from "#src/status.js";
+import { trackableFiniteFloat } from "#src/trackable_finite_float.js";
 import {
   ElementVisibilityFromTrackableBoolean,
   TrackableBoolean,
@@ -306,6 +307,8 @@ class TrackableViewerState extends CompoundTrackable {
     this.add("enableAdaptiveDownsampling", viewer.enableAdaptiveDownsampling);
     this.add("showScaleBar", viewer.showScaleBar);
     this.add("showDefaultAnnotations", viewer.showDefaultAnnotations);
+    this.add("fog", viewer.fog);
+    this.add("fogScaling", viewer.fogScaling);
 
     this.add("showSlices", viewer.showPerspectiveSliceViews);
     this.add(
@@ -484,6 +487,17 @@ export class Viewer extends RefCounted implements ViewerState {
   hideCrossSectionBackground3D = new TrackableBoolean(false, false);
   visibleLayerRoles = allRenderLayerRoles();
   showDefaultAnnotations = new TrackableBoolean(true, true);
+  /**
+   * Scene-wide depth fog for the 3-d view: how strongly content is attenuated with distance from
+   * the camera. 0 disables it. Applied to volume rendering, meshes, skeletons and annotations alike
+   * so that they agree, and never to pick IDs.
+   */
+  fog = trackableFiniteFloat(0);
+  /**
+   * Exponent controlling how fog density tracks zoom. 0 keeps the falloff identical at every zoom;
+   * positive values thicken it as you zoom in.
+   */
+  fogScaling = trackableFiniteFloat(0);
   crossSectionBackgroundColor = new TrackableRGB(
     vec3.fromValues(0.5, 0.5, 0.5),
   );

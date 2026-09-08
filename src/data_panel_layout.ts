@@ -75,6 +75,8 @@ export interface SliceViewViewerState {
   navigationState: NavigationState;
   layerManager: LayerManager;
   wireFrame: WatchableValueInterface<boolean>;
+  fog: WatchableValueInterface<number>;
+  fogScaling: WatchableValueInterface<number>;
 }
 
 export class InputEventBindings {
@@ -178,6 +180,8 @@ export function getCommonViewerState(viewer: ViewerUIState) {
     layerManager: viewer.layerManager,
     showAxisLines: viewer.showAxisLines,
     wireFrame: viewer.wireFrame,
+    fog: viewer.fog,
+    fogScaling: viewer.fogScaling,
     enableAdaptiveDownsampling: viewer.enableAdaptiveDownsampling,
     visibleLayerRoles: viewer.visibleLayerRoles,
     selectedLayer: viewer.selectedLayer,

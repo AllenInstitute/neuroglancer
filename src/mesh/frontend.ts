@@ -35,6 +35,7 @@ import {
   getMultiscaleFragmentKey,
   validateOctree,
 } from "#src/mesh/multiscale.js";
+import { setPerspectiveFogUniforms } from "#src/perspective_view/fog.js";
 import type { PerspectivePanel } from "#src/perspective_view/panel.js";
 import type {
   PerspectiveViewReadyRenderContext,
@@ -493,6 +494,7 @@ export class MeshLayer extends PerspectiveViewRenderLayer<ThreeDimensionalRender
     const { shader } = this.getShader(renderContext.emitter);
     if (shader === null) return;
     shader.bind();
+    setPerspectiveFogUniforms(this.gl, shader, renderContext);
     meshShaderManager.beginLayer(gl, shader, renderContext, this.displayState);
     meshShaderManager.beginModel(gl, shader, renderContext, modelMatrix);
 
@@ -832,6 +834,7 @@ export class MultiscaleMeshLayer extends PerspectiveViewRenderLayer<ThreeDimensi
     const { shader } = this.getShader(renderContext.emitter);
     if (shader === null) return;
     shader.bind();
+    setPerspectiveFogUniforms(this.gl, shader, renderContext);
     meshShaderManager.beginLayer(gl, shader, renderContext, this.displayState);
 
     const { renderScaleHistogram } = this.displayState;

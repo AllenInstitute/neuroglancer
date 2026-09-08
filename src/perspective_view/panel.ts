@@ -24,6 +24,10 @@ import { applyRenderViewportToProjectionMatrix } from "#src/display_context.js";
 import type { VisibleRenderLayerTracker } from "#src/layer/index.js";
 import { makeRenderedPanelVisibleLayerTracker } from "#src/layer/index.js";
 import { PERSPECTIVE_VIEW_RPC_ID } from "#src/perspective_view/base.js";
+import {
+  computeFogParameters,
+  defineFogSupport,
+} from "#src/perspective_view/fog.js";
 import type {
   PerspectiveViewReadyRenderContext,
   PerspectiveViewRenderContext,
@@ -95,6 +99,10 @@ export interface PerspectiveViewerState extends RenderedDataViewerState {
   crossSectionBackgroundColor: TrackableRGB;
   perspectiveViewBackgroundColor: TrackableRGB;
   hideCrossSectionBackground3D: TrackableBoolean;
+  /** Scene-wide depth fog amount for the 3-d view; 0 disables it. */
+  fog: WatchableValueInterface<number>;
+  /** Exponent controlling how fog density tracks zoom. */
+  fogScaling: WatchableValueInterface<number>;
   rpc: RPC;
 }
 
@@ -113,7 +121,7 @@ enum TransparentRenderingState {
 
 export const glsl_perspectivePanelEmit = `
 void emit(vec4 color, highp uint pickId) {
-  out_color = color;
+  out_color = vec4(color.rgb * perspectiveFogAttenuation(), color.a);
   float zValue = 1.0 - gl_FragCoord.z;
   out_z = vec4(zValue, zValue, zValue, 1.0);
   float pickIdFloat = float(pickId);
@@ -143,6 +151,7 @@ void emitAccumAndRevealage(vec4 accum, float revealage, highp uint pickId) {
   v4f_fragData1 = vec4(accum.a, 0.0, 0.0, 0.0);
 }
 void emit(vec4 color, highp uint pickId) {
+  color = vec4(color.rgb * perspectiveFogAttenuation(), color.a);
   float weight = computeOITWeight(color.a, gl_FragCoord.z);
   vec4 accum = color * weight;
   emitAccumAndRevealage(accum, color.a, pickId);
@@ -154,12 +163,14 @@ export function perspectivePanelEmit(builder: ShaderBuilder) {
   builder.addOutputBuffer("vec4", "out_color", OffscreenTextures.COLOR);
   builder.addOutputBuffer("highp vec4", "out_z", OffscreenTextures.Z);
   builder.addOutputBuffer("highp vec4", "out_pickId", OffscreenTextures.PICK);
+  defineFogSupport(builder);
   builder.addFragmentCode(glsl_perspectivePanelEmit);
 }
 
 export function perspectivePanelEmitOIT(builder: ShaderBuilder) {
   builder.addOutputBuffer("vec4", "v4f_fragData0", 0);
   builder.addOutputBuffer("vec4", "v4f_fragData1", 1);
+  defineFogSupport(builder);
   builder.addFragmentCode(glsl_perspectivePanelEmitOIT);
 }
 
@@ -168,6 +179,9 @@ export function maxProjectionEmit(builder: ShaderBuilder) {
   builder.addOutputBuffer("highp vec4", "out_z", 1);
   builder.addOutputBuffer("highp vec4", "out_intensity", 2);
   builder.addOutputBuffer("highp vec4", "out_pickId", 3);
+  // Declared by every perspective emitter so that consumers -- notably the volume renderer, which
+  // reads uFogDensity directly -- never have to declare it themselves and risk a redefinition.
+  defineFogSupport(builder);
   builder.addFragmentCode(`
 void emit(vec4 color, float depth, float intensity, highp uint pickId) {
   float pickIdFloat = float(pickId);
@@ -199,6 +213,7 @@ v4f_fragColor = vec4(accum.rgb / accum.a, revealage);
 function defineTransparentToTransparentCopyShader(builder: ShaderBuilder) {
   builder.addOutputBuffer("vec4", "v4f_fragData0", 0);
   builder.addOutputBuffer("vec4", "v4f_fragData1", 1);
+  defineFogSupport(builder);
   builder.addFragmentCode(glsl_perspectivePanelEmitOIT);
   builder.setFragmentMain(`
 vec4 v0 = getValue0();
@@ -214,6 +229,7 @@ emitAccumAndRevealage(accum, 1.0 - revealage, 0u);
 function defineMaxProjectionColorCopyShader(builder: ShaderBuilder) {
   builder.addOutputBuffer("vec4", "v4f_fragData0", 0);
   builder.addOutputBuffer("vec4", "v4f_fragData1", 1);
+  defineFogSupport(builder);
   builder.addFragmentCode(glsl_perspectivePanelEmitOIT);
   builder.setFragmentMain(`
 vec4 color = getValue0();
@@ -990,8 +1006,19 @@ export class PerspectivePanel extends RenderedDataPanel {
     const ambient = 0.2;
     const directional = 1 - ambient;
 
+    // Scene-wide depth fog; see perspective_view/fog.ts. The canonical voxel factors are what make
+    // the distances physical rather than per-axis voxel counts.
+    const { fogDensity, fogStartDepth } = computeFogParameters(
+      projectionParameters.invViewMatrix,
+      projectionParameters.displayDimensionRenderInfo.canonicalVoxelFactors,
+      this.viewer.fog.value,
+      this.viewer.fogScaling.value,
+    );
+
     const renderContext: PerspectiveViewRenderContext = {
       wireFrame: this.viewer.wireFrame.value,
+      fogDensity,
+      fogStartDepth,
       projectionParameters,
       lightDirection: lightingDirection,
       ambientLighting: ambient,

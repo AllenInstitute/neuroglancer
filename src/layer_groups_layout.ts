@@ -407,6 +407,8 @@ function getCommonViewerState(viewer: Viewer) {
     mouseState: viewer.mouseState,
     showAxisLines: viewer.showAxisLines,
     wireFrame: viewer.wireFrame,
+    fog: viewer.fog,
+    fogScaling: viewer.fogScaling,
     enableAdaptiveDownsampling: viewer.enableAdaptiveDownsampling,
     showScaleBar: viewer.showScaleBar,
     scaleBarOptions: viewer.scaleBarOptions,

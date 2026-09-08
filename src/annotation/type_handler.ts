@@ -25,8 +25,10 @@ import {
   propertyTypeDataType,
 } from "#src/annotation/index.js";
 import type { AnnotationLayer } from "#src/annotation/renderlayer.js";
+import { setPerspectiveFogUniforms } from "#src/perspective_view/fog.js";
 import type { PerspectiveViewRenderContext } from "#src/perspective_view/render_layer.js";
 import type { ChunkDisplayTransformParameters } from "#src/render_coordinate_transform.js";
+import { RenderLayerRole } from "#src/renderlayer.js";
 import type { SliceViewPanelRenderContext } from "#src/sliceview/renderlayer.js";
 import type { WatchableValueInterface } from "#src/trackable_value.js";
 import { RefCounted } from "#src/util/disposable.js";
@@ -632,6 +634,15 @@ if (ng_discardValue) {
     const { gl } = this;
     const { renderContext } = context;
     const { annotationLayer } = context;
+    // Default annotations -- the data-bounds box and similar overlays -- are navigational aids
+    // rather than data, so they stay crisp regardless of the scene fog.
+    setPerspectiveFogUniforms(
+      gl,
+      shader,
+      annotationLayer.state.role === RenderLayerRole.DEFAULT_ANNOTATION
+        ? { ...renderContext, fogDensity: 0 }
+        : renderContext,
+    );
     setControlsInShader(
       gl,
       shader,
