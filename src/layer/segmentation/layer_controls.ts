@@ -122,6 +122,15 @@ export const LAYER_CONTROLS: LayerControlDefinition<SegmentationUserLayer>[] = [
     "3d",
     (layer) => layer.displayState.skeletonRenderingOptions.params3d.mode,
   ),
+  {
+    label: "Skeleton radius (3d)",
+    toolJson: `${json_keys.SKELETON_RENDERING_JSON_KEY}.radiusMode3d`,
+    isValid: (layer) => layer.hasSkeletonsLayer,
+    ...enumLayerControl(
+      (layer) =>
+        layer.displayState.skeletonRenderingOptions.params3d.radiusMode!,
+    ),
+  },
   getSkeletonLineWidthControl("3d"),
 ];
 

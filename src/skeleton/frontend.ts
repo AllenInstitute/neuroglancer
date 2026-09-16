@@ -147,6 +147,11 @@ export enum SkeletonRenderMode2d {
   LINES_AND_POINTS = SkeletonRenderMode3d.LINES_AND_POINTS,
 }
 
+export enum SkeletonRadiusMode3d {
+  PIXELS = 0,
+  PHYSICAL = 1,
+}
+
 export type SkeletonRenderMode = SkeletonRenderMode2d | SkeletonRenderMode3d;
 
 function isRaycastMode(mode: SkeletonRenderMode) {
@@ -204,6 +209,12 @@ class RenderHelper extends RefCounted {
   );
   private vertexIdHelper;
   private readonly raycastEnabled: WatchableValueInterface<boolean>;
+  private readonly physicalRadiusEnabled: WatchableValueInterface<boolean>;
+  private readonly raycastParameters: WatchableValueInterface<{
+    raycastEnabled: boolean;
+    physicalRadiusEnabled: boolean;
+  }>;
+  private readonly radiusAttributeIndex: number;
   get vertexAttributes(): VertexAttributeRenderInfo[] {
     return this.base.vertexAttributes;
   }
@@ -246,13 +257,40 @@ vec4 segmentColor() {
         [renderOptions.mode],
       ),
     );
+    this.radiusAttributeIndex = this.vertexAttributes.findIndex(
+      (info) =>
+        info.name === "radius" &&
+        info.dataType === DataType.FLOAT32 &&
+        info.numComponents === 1,
+    );
+    this.physicalRadiusEnabled = this.registerDisposer(
+      makeCachedDerivedWatchableValue(
+        (mode: SkeletonRenderMode, radiusMode?: SkeletonRadiusMode3d) =>
+          !targetIsSliceView &&
+          isRaycastMode(mode) &&
+          radiusMode === SkeletonRadiusMode3d.PHYSICAL &&
+          this.radiusAttributeIndex !== -1,
+        renderOptions.radiusMode === undefined
+          ? [renderOptions.mode]
+          : [renderOptions.mode, renderOptions.radiusMode],
+      ),
+    );
+    this.raycastParameters = this.registerDisposer(
+      makeCachedDerivedWatchableValue(
+        (raycastEnabled: boolean, physicalRadiusEnabled: boolean) => ({
+          raycastEnabled,
+          physicalRadiusEnabled,
+        }),
+        [this.raycastEnabled, this.physicalRadiusEnabled],
+      ),
+    );
     const { displayState } = base;
 
     const sharedShaderOptions = {
       fallbackParameters: base.fallbackShaderParameters,
       parameters:
         displayState.skeletonRenderingOptions.shaderControlState.builderState,
-      extraParameters: this.raycastEnabled,
+      extraParameters: this.raycastParameters,
       shaderError: displayState.shaderError,
     };
     this.edgeShaderGetter = parameterizedEmitterDependentShaderGetter(
@@ -284,7 +322,10 @@ vec4 segmentColor() {
   private defineEdgeShader(
     builder: ShaderBuilder,
     shaderBuilderState: ShaderControlsBuilderState,
-    useRaycast: boolean,
+    {
+      raycastEnabled: useRaycast,
+      physicalRadiusEnabled,
+    }: { raycastEnabled: boolean; physicalRadiusEnabled: boolean },
   ) {
     this.defineCommonShader(builder);
     builder.addAttribute("highp uvec2", "aVertexIndex");
@@ -300,11 +341,17 @@ highp vec3 vertexB = readAttribute0(aVertexIndex.y);
       vertexMain += `
 highp vec3 canonicalVertexA = (uModelToCanonicalVoxel * vec4(vertexA, 1.0)).xyz;
 highp vec3 canonicalVertexB = (uModelToCanonicalVoxel * vec4(vertexB, 1.0)).xyz;
-highp vec2 edgeRadii = getRaycastSegmentRadiiForPixels(
-    canonicalVertexA, canonicalVertexB, uEdgePixelRadius);
+highp vec2 edgeRadii = ${
+        physicalRadiusEnabled
+          ? `vec2(readAttribute${this.radiusAttributeIndex}(aVertexIndex.x),
+       readAttribute${this.radiusAttributeIndex}(aVertexIndex.y)) *
+    length(uModelToCanonicalVoxel[0].xyz)`
+          : `getRaycastSegmentRadiiForPixels(
+    canonicalVertexA, canonicalVertexB, uEdgePixelRadius)`
+      };
 emitRaycastCone(canonicalVertexA, canonicalVertexB, edgeRadii.x, edgeRadii.y,
-                    getRaycastRadiusForPixels(canonicalVertexA, uNodeClipPixelRadius),
-                    getRaycastRadiusForPixels(canonicalVertexB, uNodeClipPixelRadius));
+                    ${physicalRadiusEnabled ? "edgeRadii.x" : "getRaycastRadiusForPixels(canonicalVertexA, uNodeClipPixelRadius)"},
+                    ${physicalRadiusEnabled ? "edgeRadii.y" : "getRaycastRadiusForPixels(canonicalVertexB, uNodeClipPixelRadius)"});
 `;
       builder.addFragmentCode(glsl_raycastSkeletonEmit);
     } else {
@@ -345,7 +392,10 @@ void emitRGB(vec3 color) {
   private defineNodeShader(
     builder: ShaderBuilder,
     shaderBuilderState: ShaderControlsBuilderState,
-    useRaycast: boolean,
+    {
+      raycastEnabled: useRaycast,
+      physicalRadiusEnabled,
+    }: { raycastEnabled: boolean; physicalRadiusEnabled: boolean },
   ) {
     this.defineCommonShader(builder);
     let vertexMain = `
@@ -360,7 +410,12 @@ highp vec3 vertexPosition = readAttribute0(vertexIndex);
 highp vec3 canonicalPosition = (uModelToCanonicalVoxel * vec4(vertexPosition, 1.0)).xyz;
 emitRaycastSphere(
     canonicalPosition,
-    getRaycastRadiusForPixels(canonicalPosition, uNodePixelRadius));
+  ${
+    physicalRadiusEnabled
+      ? `readAttribute${this.radiusAttributeIndex}(vertexIndex) *
+    length(uModelToCanonicalVoxel[0].xyz)`
+      : "getRaycastRadiusForPixels(canonicalPosition, uNodePixelRadius)"
+  });
 `;
       builder.addFragmentCode(glsl_raycastSkeletonEmit);
     } else {
@@ -722,6 +777,15 @@ export class TrackableSkeletonRenderMode3d extends TrackableEnum<SkeletonRenderM
   }
 }
 
+export class TrackableSkeletonRadiusMode3d extends TrackableEnum<SkeletonRadiusMode3d> {
+  constructor(
+    value: SkeletonRadiusMode3d,
+    defaultValue: SkeletonRadiusMode3d = value,
+  ) {
+    super(SkeletonRadiusMode3d, value, defaultValue);
+  }
+}
+
 export class TrackableSkeletonLineWidth extends TrackableValue<number> {
   constructor(value: number, defaultValue: number = value) {
     super(value, verifyFinitePositiveFloat, defaultValue);
@@ -733,6 +797,7 @@ export interface ViewSpecificSkeletonRenderingOptions<
 > {
   mode: TrackableEnum<Mode>;
   lineWidth: TrackableSkeletonLineWidth;
+  radiusMode?: TrackableSkeletonRadiusMode3d;
 }
 
 export class SkeletonRenderingOptions implements Trackable {
@@ -753,6 +818,7 @@ export class SkeletonRenderingOptions implements Trackable {
   params3d: ViewSpecificSkeletonRenderingOptions<SkeletonRenderMode3d> = {
     mode: new TrackableSkeletonRenderMode3d(SkeletonRenderMode3d.LINES),
     lineWidth: new TrackableSkeletonLineWidth(1),
+    radiusMode: new TrackableSkeletonRadiusMode3d(SkeletonRadiusMode3d.PIXELS),
   };
 
   constructor() {
@@ -764,6 +830,7 @@ export class SkeletonRenderingOptions implements Trackable {
     compound.add("lineWidth2d", this.params2d.lineWidth);
     compound.add("mode3d", this.params3d.mode);
     compound.add("lineWidth3d", this.params3d.lineWidth);
+    compound.add("radiusMode3d", this.params3d.radiusMode!);
   }
 
   reset() {
@@ -1049,6 +1116,9 @@ export class PerspectiveViewSkeletonLayer extends PerspectiveViewRenderLayer {
     );
     this.registerDisposer(
       renderOptions.lineWidth.changed.add(this.redrawNeeded.dispatch),
+    );
+    this.registerDisposer(
+      renderOptions.radiusMode!.changed.add(this.redrawNeeded.dispatch),
     );
     this.registerDisposer(base.visibility.add(this.visibility));
   }
