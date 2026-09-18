@@ -798,7 +798,11 @@ export class PerspectiveViewSkeletonLayer extends PerspectiveViewRenderLayer {
   }
 
   get isTransparent() {
-    return this.base.displayState.objectAlpha.value < 1.0;
+    const { displayState } = this.base;
+    return (
+      displayState.objectAlpha.value < 1.0 ||
+      displayState.segmentationColorUserShader.mayReturnAlpha
+    );
   }
 
   draw(
