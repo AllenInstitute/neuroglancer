@@ -225,6 +225,41 @@ describe("CommandCatalog command sources", () => {
   });
 });
 
+describe("CommandCatalog layer commands", () => {
+  it("shows only the selected non-archived layer", () => {
+    const makeLayer = (name: string, archived = false) => ({
+      name,
+      archived,
+      visible: true,
+      setVisible(value: boolean) {
+        this.visible = value;
+      },
+    });
+    const firstLayer = makeLayer("first");
+    const archivedLayer = makeLayer("archived", true);
+    const secondLayer = makeLayer("second");
+    const context = makeContext();
+    (
+      context.layerManager as unknown as {
+        managedLayers: ReturnType<typeof makeLayer>[];
+      }
+    ).managedLayers = [firstLayer, archivedLayer, secondLayer];
+    const catalog = new CommandCatalog(context);
+    try {
+      const entry = catalog.commands.find(
+        ({ command }) => command.id === "show-only-layer-2",
+      );
+      expect(entry?.shortcut).toBe("Shift+2");
+      entry?.command.invoke({ dispatchTarget: new EventTarget() });
+      expect(firstLayer.visible).toBe(false);
+      expect(archivedLayer.visible).toBe(false);
+      expect(secondLayer.visible).toBe(true);
+    } finally {
+      catalog.dispose();
+    }
+  });
+});
+
 describe("CommandCatalog reactivity", () => {
   it("rebuilds (debounced) when a subscribed change signal fires", async () => {
     const layersChanged = new Signal();

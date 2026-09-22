@@ -269,6 +269,10 @@ export class CommandCatalog extends RefCounted {
       label: "Toggle Layer Visibility",
       shortcut: "1–9",
     };
+    const showOnlyLayerGroup: CommandGroup = {
+      label: "Show Only Layer",
+      shortcut: "Shift+1–9",
+    };
     const selectLayerGroup: CommandGroup = {
       label: "Select Layer",
       shortcut: "Ctrl+1–9",
@@ -299,6 +303,26 @@ export class CommandCatalog extends RefCounted {
           ...commonObject,
           shortcut: nonArchivedIndex < 9 ? String(nonArchivedIndex + 1) : "",
           group: toggleLayerGroup,
+          command,
+        });
+      }
+
+      {
+        // Show only layer
+        const command = new CallbackCommand(
+          `show-only-layer-${nonArchivedIndex + 1}`,
+          `Show only ${layer.name}`,
+          () => {
+            for (const otherLayer of layers) {
+              otherLayer.setVisible(otherLayer === layer);
+            }
+          },
+        );
+        command.enabled = enabled;
+        commands.push({
+          ...commonObject,
+          shortcut: nonArchivedIndex < 9 ? `Shift+${nonArchivedIndex + 1}` : "",
+          group: showOnlyLayerGroup,
           command,
         });
       }
