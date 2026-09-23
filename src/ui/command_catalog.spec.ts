@@ -223,6 +223,27 @@ describe("CommandCatalog command sources", () => {
       catalog.dispose();
     }
   });
+
+  it("does not duplicate a bound show-only layer action", () => {
+    const map = new EventActionMap();
+    map.set("shift+digit1", "show-only-layer-1");
+    const context = makeContext(makeInputEventBindings(map));
+    (
+      context.layerManager as unknown as {
+        managedLayers: { name: string; archived: boolean }[];
+      }
+    ).managedLayers = [{ name: "first", archived: false }];
+    const catalog = new CommandCatalog(context);
+    try {
+      expect(
+        catalog.commands.filter(
+          ({ command }) => command.id === "show-only-layer-1",
+        ),
+      ).toHaveLength(1);
+    } finally {
+      catalog.dispose();
+    }
+  });
 });
 
 describe("CommandCatalog layer commands", () => {

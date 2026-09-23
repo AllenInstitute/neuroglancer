@@ -381,7 +381,9 @@ export class CommandCatalog extends RefCounted {
     for (const { actionId } of bindings) {
       if (commandRegistry.has(actionId)) continue;
       if (/^tool-[A-Z]$/.test(actionId)) continue;
-      if (/^(toggle|select|toggle-pick)-layer-\d+$/.test(actionId)) continue;
+      if (/^(toggle|select|toggle-pick|show-only)-layer-\d+$/.test(actionId)) {
+        continue;
+      }
       const label = actionIdToLabel(actionId);
       commands.push({
         label,
