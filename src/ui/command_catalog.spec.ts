@@ -226,7 +226,7 @@ describe("CommandCatalog command sources", () => {
 });
 
 describe("CommandCatalog layer commands", () => {
-  it("shows only the selected non-archived layer", () => {
+  it("dispatches the show-only action for the non-archived layer index", () => {
     const makeLayer = (name: string, archived = false) => ({
       name,
       archived,
@@ -250,10 +250,13 @@ describe("CommandCatalog layer commands", () => {
         ({ command }) => command.id === "show-only-layer-2",
       );
       expect(entry?.shortcut).toBe("Shift+2");
-      entry?.command.invoke({ dispatchTarget: new EventTarget() });
-      expect(firstLayer.visible).toBe(false);
-      expect(archivedLayer.visible).toBe(false);
-      expect(secondLayer.visible).toBe(true);
+      const dispatchTarget = new EventTarget();
+      let dispatched = false;
+      dispatchTarget.addEventListener("action:show-only-layer-2", () => {
+        dispatched = true;
+      });
+      entry?.command.invoke({ dispatchTarget });
+      expect(dispatched).toBe(true);
     } finally {
       catalog.dispose();
     }

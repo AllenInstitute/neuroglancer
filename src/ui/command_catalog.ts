@@ -257,7 +257,6 @@ export class CommandCatalog extends RefCounted {
     const {
       globalToolBinder,
       layerManager,
-      selectedLayer,
       inputEventBindings,
       commandRegistry,
     } = this.context;
@@ -293,10 +292,9 @@ export class CommandCatalog extends RefCounted {
 
       {
         // Toggle layer
-        const command = new CallbackCommand(
+        const command = new ActionCommand(
           `toggle-layer-${nonArchivedIndex + 1}`,
           `Show/hide ${layer.name}`,
-          () => layer.setVisible(!layer.visible),
         );
         command.enabled = enabled;
         commands.push({
@@ -309,14 +307,9 @@ export class CommandCatalog extends RefCounted {
 
       {
         // Show only layer
-        const command = new CallbackCommand(
+        const command = new ActionCommand(
           `show-only-layer-${nonArchivedIndex + 1}`,
           `Show only ${layer.name}`,
-          () => {
-            for (const otherLayer of layers) {
-              otherLayer.setVisible(otherLayer === layer);
-            }
-          },
         );
         command.enabled = enabled;
         commands.push({
@@ -329,13 +322,9 @@ export class CommandCatalog extends RefCounted {
 
       {
         // Select layer
-        const command = new CallbackCommand(
+        const command = new ActionCommand(
           `select-layer-${nonArchivedIndex + 1}`,
           `Select ${layer.name}`,
-          () => {
-            selectedLayer.layer = layer;
-            selectedLayer.visible = true;
-          },
         );
         command.enabled = enabled;
         commands.push({
@@ -348,12 +337,9 @@ export class CommandCatalog extends RefCounted {
 
       {
         // Toggle pick
-        const command = new CallbackCommand(
+        const command = new ActionCommand(
           `toggle-pick-layer-${nonArchivedIndex + 1}`,
           `Toggle pick ${layer.name}`,
-          () => {
-            layer.pickEnabled = !layer.pickEnabled;
-          },
         );
         command.enabled = enabled;
         commands.push({
