@@ -1193,6 +1193,7 @@ export class Viewer extends RefCounted implements ViewerState {
         for (const otherLayer of this.layerManager.managedLayers) {
           otherLayer.setVisible(otherLayer === layer);
         }
+        this.selectedLayer.layer = layer;
       });
       this.bindAction(`toggle-pick-layer-${i}`, () => {
         const layer = this.layerManager.getLayerByNonArchivedIndex(i - 1);
