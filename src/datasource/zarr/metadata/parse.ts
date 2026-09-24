@@ -263,9 +263,7 @@ export function parseV3Metadata(
     const nodeStr =
       expectedNodeType === undefined ? "" : `${expectedNodeType} `;
     const message = e instanceof Error ? e.message : String(e);
-    throw new Error(
-      `Error parsing zarr v3 ${nodeStr}metadata: ${message}`,
-    );
+    throw new Error(`Error parsing zarr v3 ${nodeStr}metadata: ${message}`);
   }
 }
 
