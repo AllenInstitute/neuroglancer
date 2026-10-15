@@ -89,6 +89,7 @@ async function draw(
   layout: string,
   layers: object[],
   transparentBackground: boolean,
+  showAxisLines = false,
 ) {
   const container = document.createElement("div");
   container.style.width = "128px";
@@ -104,7 +105,7 @@ async function draw(
     position: [8, 8, 8],
     crossSectionScale: 0.25,
     layout,
-    showAxisLines: false,
+    showAxisLines,
     showScaleBar: false,
     showDefaultAnnotations: false,
     layers,
@@ -127,6 +128,7 @@ async function draw(
     Array.from(pixels.subarray((y * width + x) * 4, (y * width + x) * 4 + 4));
   return {
     center: at(width >> 1, height >> 1),
+    offCenter: at((width >> 1) - (width >> 3), (height >> 1) - (height >> 3)),
     // Inside the panel, outside the content.
     empty: at(width >> 3, height >> 1),
     // Pixels whose color exceeds their alpha, which a premultiplied canvas cannot show correctly.
@@ -166,6 +168,13 @@ describe("DisplayContext.transparentBackground", () => {
     await serveImage();
     const result = await draw("xy", [translucentImage], true);
     expect(result.center).toEqual([half(), half(), half(), half()]);
+    expect(result.invalidPixels()).toBe(0);
+  });
+
+  it("preserves image alpha when axis lines are enabled", async () => {
+    await serveImage();
+    const result = await draw("xy", [translucentImage], true, true);
+    expect(result.offCenter).toEqual([half(), half(), half(), half()]);
     expect(result.invalidPixels()).toBe(0);
   });
 

@@ -438,6 +438,8 @@ export class SliceViewPanel extends RenderedDataPanel {
           disableZProjection(
             computeAxisLineMatrix(projectionParameters, axisLength * zoom),
           ),
+          true,
+          this.context.transparentBackground,
         );
       }
       if (this.viewer.showScaleBar.value) {

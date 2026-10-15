@@ -130,7 +130,7 @@ export class AxesLineHelper extends RefCounted {
     );
   }
 
-  draw(mat: mat4, blend = true) {
+  draw(mat: mat4, blend = true, preserveAlpha = false) {
     const shader = this.trivialColorShader;
     const gl = this.gl;
     shader.bind();
@@ -142,12 +142,21 @@ export class AxesLineHelper extends RefCounted {
     this.colorBuffer.bindToVertexAttrib(aColor, 4);
 
     if (blend) {
-      gl.colorMask(false, false, false, true);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.colorMask(true, true, true, true);
       gl.enable(gl.BLEND);
-      gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.DST_ALPHA);
+      if (preserveAlpha) {
+        gl.blendFuncSeparate(
+          gl.SRC_ALPHA,
+          gl.ONE_MINUS_SRC_ALPHA,
+          gl.ONE,
+          gl.ONE_MINUS_SRC_ALPHA,
+        );
+      } else {
+        gl.colorMask(false, false, false, true);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.colorMask(true, true, true, true);
+        gl.blendFunc(gl.ONE_MINUS_DST_ALPHA, gl.DST_ALPHA);
+      }
     }
 
     gl.lineWidth(1);
