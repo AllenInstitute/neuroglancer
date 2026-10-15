@@ -149,9 +149,25 @@ export class ImageRenderLayer extends SliceViewVolumeRenderLayer<ShaderControlsB
     );
   }
 
-  setGLBlendMode(gl: WebGL2RenderingContext, renderLayerNum: number) {
+  setGLBlendMode(
+    gl: WebGL2RenderingContext,
+    renderLayerNum: number,
+    premultipliedAlpha = false,
+  ) {
     const blendModeValue = this.blendMode.value;
-    if (blendModeValue === BLEND_MODES.ADDITIVE || renderLayerNum > 0) {
+    if (premultipliedAlpha) {
+      const destinationFactor =
+        blendModeValue === BLEND_MODES.ADDITIVE
+          ? gl.ONE
+          : gl.ONE_MINUS_SRC_ALPHA;
+      gl.enable(gl.BLEND);
+      gl.blendFuncSeparate(
+        gl.SRC_ALPHA,
+        destinationFactor,
+        gl.ONE,
+        destinationFactor,
+      );
+    } else if (blendModeValue === BLEND_MODES.ADDITIVE || renderLayerNum > 0) {
       gl.enable(gl.BLEND);
       BLEND_FUNCTIONS.get(blendModeValue)!(gl);
     } else {

@@ -226,9 +226,21 @@ export abstract class SliceViewRenderLayer<
     return this.chunkManager.chunkQueueManager.gl;
   }
 
-  setGLBlendMode(gl: WebGL2RenderingContext, renderLayerNum: number): void {
+  setGLBlendMode(
+    gl: WebGL2RenderingContext,
+    renderLayerNum: number,
+    premultipliedAlpha = false,
+  ): void {
     // Default blend mode for non-blend-mode-aware layers
-    if (renderLayerNum > 0) {
+    if (premultipliedAlpha) {
+      gl.enable(gl.BLEND);
+      gl.blendFuncSeparate(
+        gl.SRC_ALPHA,
+        gl.ONE_MINUS_SRC_ALPHA,
+        gl.ONE,
+        gl.ONE_MINUS_SRC_ALPHA,
+      );
+    } else if (renderLayerNum > 0) {
       gl.enable(WebGL2RenderingContext.BLEND);
       gl.blendFunc(
         WebGL2RenderingContext.SRC_ALPHA,

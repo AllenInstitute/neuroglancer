@@ -90,6 +90,7 @@ async function draw(
   layers: object[],
   transparentBackground: boolean,
   showAxisLines = false,
+  beforeRead?: (viewer: Viewer) => void,
 ) {
   const container = document.createElement("div");
   container.style.width = "128px";
@@ -120,6 +121,8 @@ async function draw(
   );
   // `isReady` processes pending chunk updates, so draw again to show them.
   display.draw();
+  beforeRead?.(viewer);
+  display.draw();
   const { gl, canvas } = display;
   const { width, height } = canvas;
   const pixels = new Uint8Array(width * height * 4);
@@ -129,6 +132,19 @@ async function draw(
   return {
     center: at(width >> 1, height >> 1),
     offCenter: at((width >> 1) - (width >> 3), (height >> 1) - (height >> 3)),
+    panelCenters: Array.from(display.panels, (panel) => ({
+      type: panel.constructor.name,
+      color: at(
+        Math.floor(
+          panel.canvasRelativeClippedLeft + panel.renderViewport.width / 2,
+        ),
+        Math.floor(
+          height -
+            panel.canvasRelativeClippedTop -
+            panel.renderViewport.height / 2,
+        ),
+      ),
+    })),
     // Inside the panel, outside the content.
     empty: at(width >> 3, height >> 1),
     // Pixels whose color exceeds their alpha, which a premultiplied canvas cannot show correctly.
@@ -169,6 +185,139 @@ describe("DisplayContext.transparentBackground", () => {
     const result = await draw("xy", [translucentImage], true);
     expect(result.center).toEqual([half(), half(), half(), half()]);
     expect(result.invalidPixels()).toBe(0);
+  });
+
+  it("composites overlapping translucent images", async () => {
+    await serveImage();
+    const result = await draw(
+      "xy",
+      [translucentImage, { ...translucentImage, name: "second image" }],
+      true,
+    );
+    expect(result.center).toEqual([192, 192, 192, 192]);
+    expect(result.invalidPixels()).toBe(0);
+  });
+
+  it("composites translucent image colors with premultiplied alpha", async () => {
+    await serveImage();
+    const result = await draw(
+      "xy",
+      [
+        {
+          ...translucentImage,
+          shader: "void main() { emitRGB(vec3(1.0, 0.0, 0.0)); }",
+        },
+        {
+          ...translucentImage,
+          name: "green",
+          shader: "void main() { emitRGB(vec3(0.0, 1.0, 0.0)); }",
+        },
+      ],
+      true,
+    );
+    expect(result.center).toEqual([64, 128, 0, 192]);
+    expect(result.invalidPixels()).toBe(0);
+  });
+
+  it("keeps an opaque image opaque beneath a translucent image", async () => {
+    await serveImage();
+    const result = await draw(
+      "xy",
+      [
+        { ...translucentImage, opacity: 1 },
+        { ...translucentImage, name: "second image" },
+      ],
+      true,
+    );
+    expect(result.center).toEqual([255, 255, 255, 255]);
+  });
+
+  it("composites additive image layers without squaring their alpha", async () => {
+    await serveImage();
+    const result = await draw(
+      "xy",
+      [
+        { ...translucentImage, opacity: 0.25, blend: "additive" },
+        {
+          ...translucentImage,
+          name: "second image",
+          opacity: 0.25,
+          blend: "additive",
+        },
+      ],
+      true,
+    );
+    expect(result.center).toEqual([128, 128, 128, 128]);
+    expect(result.invalidPixels()).toBe(0);
+  });
+
+  it("reuses the transparent composition after toggling transparency", async () => {
+    await serveImage();
+    const result = await draw(
+      "xy",
+      [translucentImage, { ...translucentImage, name: "second image" }],
+      true,
+      false,
+      (viewer) => {
+        viewer.uiConfiguration.transparentBackground.value = false;
+        viewer.display.draw();
+        viewer.uiConfiguration.transparentBackground.value = true;
+      },
+    );
+    expect(result.center).toEqual([192, 192, 192, 192]);
+  });
+
+  it("invalidates the transparent composition after opaque rendering changes", async () => {
+    await serveImage();
+    const result = await draw(
+      "xy",
+      [translucentImage, { ...translucentImage, name: "second image" }],
+      true,
+      false,
+      (viewer) => {
+        viewer.uiConfiguration.transparentBackground.value = false;
+        viewer.display.draw();
+        viewer.layerManager.managedLayers[1].setVisible(false);
+        viewer.display.draw();
+        viewer.uiConfiguration.transparentBackground.value = true;
+      },
+    );
+    expect(result.center).toEqual([half(), half(), half(), half()]);
+  });
+
+  it("preserves legacy image colors with an opaque background", async () => {
+    await serveImage();
+    const result = await draw(
+      "xy",
+      [translucentImage, { ...translucentImage, name: "second image" }],
+      false,
+    );
+    expect(result.center).toEqual([255, 255, 255, 255]);
+  });
+
+  it("preserves 3D slice colors when sharing slices with transparent panels", async () => {
+    await serveImage();
+    const layers = [
+      {
+        ...translucentImage,
+        shader: "void main() { emitRGB(vec3(1.0, 0.0, 0.0)); }",
+      },
+      {
+        ...translucentImage,
+        name: "green",
+        shader: "void main() { emitRGB(vec3(0.0, 1.0, 0.0)); }",
+      },
+    ];
+    const opaque = await draw("4panel", layers, false);
+    const transparent = await draw("4panel", layers, true);
+    const opaque3D = opaque.panelCenters.find(
+      (panel) => panel.type === "PerspectivePanel",
+    )!;
+    const transparent3D = transparent.panelCenters.find(
+      (panel) => panel.type === "PerspectivePanel",
+    )!;
+    expect(opaque3D.color[2]).toBe(0);
+    expect(transparent3D.color).toEqual(opaque3D.color);
   });
 
   it("preserves image alpha when axis lines are enabled", async () => {

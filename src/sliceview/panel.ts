@@ -95,16 +95,6 @@ void emit(vec4 color, highp uint pickId) {
 `);
 }
 
-// Premultiplies the color by alpha, as the canvas expects when it is not opaque.
-function sliceViewPanelEmitPremultipliedColor(builder: ShaderBuilder) {
-  builder.addOutputBuffer("vec4", "out_fragColor", null);
-  builder.addFragmentCode(`
-void emit(vec4 color, highp uint pickId) {
-  out_fragColor = vec4(color.rgb * color.a, color.a);
-}
-`);
-}
-
 const tempVec3 = vec3.create();
 const tempVec3b = vec3.create();
 const tempVec4 = vec4.create();
@@ -112,7 +102,6 @@ const tempVec4 = vec4.create();
 export class SliceViewPanel extends RenderedDataPanel {
   declare viewer: SliceViewerState;
   private sliceViewRenderHelper;
-  private premultipliedSliceViewRenderHelper;
 
   private axesLineHelper = this.registerDisposer(AxesLineHelper.get(this.gl));
 
@@ -182,15 +171,6 @@ export class SliceViewPanel extends RenderedDataPanel {
       SliceViewRenderHelper.get(
         this.gl,
         sliceViewPanelEmitColor,
-        this.viewer,
-        false /*sliceViewPanel*/,
-      ),
-    );
-
-    this.premultipliedSliceViewRenderHelper = this.registerDisposer(
-      SliceViewRenderHelper.get(
-        this.gl,
-        sliceViewPanelEmitPremultipliedColor,
         this.viewer,
         false /*sliceViewPanel*/,
       ),
@@ -355,7 +335,8 @@ export class SliceViewPanel extends RenderedDataPanel {
     if (!sliceView.valid) {
       return false;
     }
-    sliceView.updateRendering();
+    const { transparentBackground } = this.context;
+    sliceView.updateRendering(transparentBackground);
     const projectionParameters = sliceView.projectionParameters.value;
     const { width, height, invViewProjectionMat } = projectionParameters;
     mat4.copy(pickingData.invTransform, invViewProjectionMat);
@@ -369,17 +350,18 @@ export class SliceViewPanel extends RenderedDataPanel {
     const backgroundColor = tempVec4;
     const crossSectionBackgroundColor =
       this.viewer.crossSectionBackgroundColor.value;
-    backgroundColor[0] = crossSectionBackgroundColor[0];
-    backgroundColor[1] = crossSectionBackgroundColor[1];
-    backgroundColor[2] = crossSectionBackgroundColor[2];
-    backgroundColor[3] = this.context.transparentBackground ? 0 : 1;
+    const backgroundAlpha = transparentBackground ? 0 : 1;
+    backgroundColor[0] = crossSectionBackgroundColor[0] * backgroundAlpha;
+    backgroundColor[1] = crossSectionBackgroundColor[1] * backgroundAlpha;
+    backgroundColor[2] = crossSectionBackgroundColor[2] * backgroundAlpha;
+    backgroundColor[3] = backgroundAlpha;
 
     this.offscreenFramebuffer.bindSingle(OffscreenTextures.COLOR);
-    const sliceViewRenderHelper = this.context.transparentBackground
-      ? this.premultipliedSliceViewRenderHelper
-      : this.sliceViewRenderHelper;
-    sliceViewRenderHelper.draw(
-      sliceView.offscreenFramebuffer.colorBuffers[0].texture,
+    const sliceViewFramebuffer = transparentBackground
+      ? sliceView.premultipliedOffscreenFramebuffer
+      : sliceView.offscreenFramebuffer;
+    this.sliceViewRenderHelper.draw(
+      sliceViewFramebuffer.colorBuffers[0].texture,
       identityMat4,
       this.colorFactor,
       backgroundColor,

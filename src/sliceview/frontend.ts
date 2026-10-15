@@ -178,6 +178,15 @@ export class SliceView extends Base {
   offscreenFramebuffer;
   histogramInputTextures: TextureBuffer[] = [];
   offscreenFramebuffersWithHistograms;
+  private premultipliedOffscreenFramebuffersWithHistograms: FramebufferConfiguration<
+    TextureBuffer,
+    DepthTextureBuffer
+  >[] = [];
+  private renderingStaleByAlphaMode = [true, true];
+
+  get premultipliedOffscreenFramebuffer() {
+    return this.getOffscreenFramebufferWithHistograms(0, true);
+  }
 
   get displayDimensionRenderInfo() {
     return this.navigationState.displayDimensionRenderInfo;
@@ -497,11 +506,17 @@ export class SliceView extends Base {
     return this.navigationState.valid;
   }
 
-  private getOffscreenFramebufferWithHistograms(count: number) {
-    const { offscreenFramebuffersWithHistograms } = this;
+  private getOffscreenFramebufferWithHistograms(
+    count: number,
+    premultipliedAlpha = false,
+  ) {
+    const offscreenFramebuffersWithHistograms = premultipliedAlpha
+      ? this.premultipliedOffscreenFramebuffersWithHistograms
+      : this.offscreenFramebuffersWithHistograms;
     let framebuffer = offscreenFramebuffersWithHistograms[count];
     if (framebuffer === undefined) {
-      const { gl, histogramInputTextures, offscreenFramebuffer } = this;
+      const { gl, histogramInputTextures } = this;
+      const offscreenFramebuffer = offscreenFramebuffersWithHistograms[0];
       if (histogramInputTextures.length < count) {
         histogramInputTextures.push(
           ...makeTextureBuffers(
@@ -512,14 +527,17 @@ export class SliceView extends Base {
           ),
         );
       }
-      const colorBuffers = [offscreenFramebuffer.colorBuffers[0].addRef()];
+      const colorBuffers =
+        offscreenFramebuffer === undefined
+          ? makeTextureBuffers(gl, 1)
+          : [offscreenFramebuffer.colorBuffers[0].addRef()];
       for (let i = 0; i < count; ++i) {
         colorBuffers.push(histogramInputTextures[i].addRef());
       }
       framebuffer = this.registerDisposer(
         new FramebufferConfiguration(gl, {
           colorBuffers,
-          depthBuffer: offscreenFramebuffer.depthBuffer!.addRef(),
+          depthBuffer: this.offscreenFramebuffer.depthBuffer!.addRef(),
         }),
       );
       offscreenFramebuffersWithHistograms[count] = framebuffer;
@@ -527,17 +545,27 @@ export class SliceView extends Base {
     return framebuffer;
   }
 
-  updateRendering() {
+  updateRendering(premultipliedAlpha = false) {
     const projectionParameters = this.projectionParameters.value;
     const { width, height } = projectionParameters;
-    if (!this.renderingStale || !this.valid || width === 0 || height === 0) {
+    if (!this.valid || width === 0 || height === 0) {
       return;
     }
-    this.renderingStale = false;
     this.updateVisibleLayers.flush();
+    if (this.renderingStale) {
+      this.renderingStaleByAlphaMode.fill(true);
+      this.renderingStale = false;
+    }
+    const alphaMode = Number(premultipliedAlpha);
+    if (!this.renderingStaleByAlphaMode[alphaMode]) return;
+    this.renderingStaleByAlphaMode[alphaMode] = false;
     this.updateVisibleSources();
 
-    const { gl, offscreenFramebuffer } = this;
+    const { gl } = this;
+    const offscreenFramebuffer = this.getOffscreenFramebufferWithHistograms(
+      0,
+      premultipliedAlpha,
+    );
 
     offscreenFramebuffer.bind(width, height);
     gl.disable(gl.SCISSOR_TEST);
@@ -552,8 +580,10 @@ export class SliceView extends Base {
       const histogramCount = wireFrame
         ? 0
         : renderLayer.getDataHistogramCount();
-      const framebuffer =
-        this.getOffscreenFramebufferWithHistograms(histogramCount);
+      const framebuffer = this.getOffscreenFramebufferWithHistograms(
+        histogramCount,
+        premultipliedAlpha,
+      );
       framebuffer.bind(width, height);
       for (let i = 0; i < histogramCount; ++i) {
         gl.clearBufferfv(WebGL2RenderingContext.COLOR, 1 + i, kZeroVec4);
@@ -562,7 +592,7 @@ export class SliceView extends Base {
       gl.depthFunc(WebGL2RenderingContext.LESS);
       gl.clearDepth(1);
       gl.clear(WebGL2RenderingContext.DEPTH_BUFFER_BIT);
-      renderLayer.setGLBlendMode(gl, renderLayerNum);
+      renderLayer.setGLBlendMode(gl, renderLayerNum, premultipliedAlpha);
       renderLayer.draw(renderContext);
       ++renderLayerNum;
     }

@@ -1,0 +1,29 @@
+{
+  "dimensions": {
+    "x": [4e-9, "m"],
+    "y": [4e-9, "m"],
+    "z": [3.3e-8, "m"]
+  },
+  "position": [515876.75, 356477.5, 2646.5],
+  "crossSectionScale": 1,
+  "layout": "xy",
+  "showAxisLines": false,
+  "showScaleBar": false,
+  "showDefaultAnnotations": false,
+  "layers": [
+    {
+      "type": "image",
+      "name": "White A (50%)",
+      "source": "gs://h01-release/data/20210601/4nm_raw/|neuroglancer-precomputed:",
+      "opacity": 0.5,
+      "shader": "void main() { emitGrayscale(1.0); }"
+    },
+    {
+      "type": "image",
+      "name": "White B (50%)",
+      "source": "gs://h01-release/data/20210601/4nm_raw/|neuroglancer-precomputed:",
+      "opacity": 0.5,
+      "shader": "void main() { emitGrayscale(1.0); }"
+    }
+  ]
+}
