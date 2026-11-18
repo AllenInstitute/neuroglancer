@@ -1,0 +1,10 @@
+{
+  "@type": "neuroglancer_skeletons",
+  "vertex_attributes": [
+    {
+      "id": "endpoint_value",
+      "data_type": "float32",
+      "num_components": 1
+    }
+  ]
+}

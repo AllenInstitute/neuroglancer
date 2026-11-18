@@ -1,0 +1,36 @@
+{
+  "title": "Raycast skeleton: visible surface cut off at the far plane",
+  "dimensions": {
+    "x": [1e-9, "m"],
+    "y": [1e-9, "m"],
+    "z": [1e-9, "m"]
+  },
+  "position": [0, 0, -1],
+  "projectionOrientation": [1, 0, 0, 0],
+  "projectionScale": 2,
+  "projectionDepth": -1,
+  "projectionBackgroundColor": "#202020",
+  "showAxisLines": false,
+  "showScaleBar": false,
+  "showDefaultAnnotations": false,
+  "showSlices": false,
+  "enableAdaptiveDownsampling": false,
+  "layout": {
+    "type": "3d",
+    "orthographicProjection": true
+  },
+  "layers": [
+    {
+      "type": "segmentation",
+      "name": "Far-plane clipping: right half incorrectly missing",
+      "source": "precomputed://http://127.0.0.1:9000/raycast_skeleton_repros/skeletons",
+      "segments": ["1"],
+      "objectAlpha": 1,
+      "skeletonRendering": {
+        "mode3d": "cylinders",
+        "lineWidth3d": 128,
+        "shader": "void main() { emitRGB(vec3(1.0)); }"
+      }
+    }
+  ]
+}

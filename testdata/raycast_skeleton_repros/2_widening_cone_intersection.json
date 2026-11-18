@@ -1,0 +1,33 @@
+{
+  "title": "Raycast skeleton: valid positive-root intersections discarded",
+  "dimensions": {
+    "x": [1e-9, "m"],
+    "y": [1e-9, "m"],
+    "z": [1e-9, "m"]
+  },
+  "position": [0, 0, -1],
+  "projectionOrientation": [1, 0, 0, 0],
+  "projectionScale": 0.8284271247461902,
+  "projectionDepth": -4826.012910901817,
+  "projectionBackgroundColor": "#202020",
+  "showAxisLines": false,
+  "showScaleBar": false,
+  "showDefaultAnnotations": false,
+  "showSlices": false,
+  "enableAdaptiveDownsampling": false,
+  "layout": "3d",
+  "layers": [
+    {
+      "type": "segmentation",
+      "name": "Widening cone: black hole at the right end (nodes hidden)",
+      "source": "precomputed://http://127.0.0.1:9000/raycast_skeleton_repros/skeletons",
+      "segments": ["2"],
+      "objectAlpha": 1,
+      "skeletonRendering": {
+        "mode3d": "cylinders",
+        "lineWidth3d": 80,
+        "shader": "void main() {\n  if (endpoint_value <= 0.00001 || endpoint_value >= 0.99999) discard;\n  emitRGB(vec3(1.0) / max(raycastLightingFactor, 0.001));\n}"
+      }
+    }
+  ]
+}
