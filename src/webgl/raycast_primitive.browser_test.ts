@@ -132,6 +132,7 @@ function drawCone(
   spec: ConeSpec,
   fragmentMain: string,
   projection?: mat4,
+  useFullScreenQuad = false,
 ): Uint8Array {
   const { clipRadiusA = 0, clipRadiusB = 0 } = spec;
   return render(
@@ -139,7 +140,8 @@ function drawCone(
     defineRaycastConeShader,
     `emitRaycastCone(${glslPoint(spec.endpointA)}, ${glslPoint(spec.endpointB)},
                      ${glslRadius(spec.radiusA)}, ${glslRadius(spec.radiusB)},
-                     ${glslRadius(clipRadiusA)}, ${glslRadius(clipRadiusB)});`,
+                     ${glslRadius(clipRadiusA)}, ${glslRadius(clipRadiusB)});
+     ${useFullScreenQuad ? "gl_Position = vec4(getQuadVertexPosition(vec2(-1.0), vec2(1.0)), 0.0, 1.0);" : ""}`,
     fragmentMain,
     projection,
   );
@@ -210,6 +212,38 @@ function axialFractionByRow(pixels: Uint8Array): number[] {
 }
 
 describe("raycast cone", () => {
+  it.each([
+    [-1.95, -2.05],
+    [-2.01, -2.05],
+    [-1.95, -2.35],
+  ])(
+    "keeps visible surface when the cone axis at z=%s to %s extends past the far plane",
+    (zA, zB) => {
+      webglTest((gl) => {
+        const spec: ConeSpec = {
+          endpointA: [-0.5, 0, zA],
+          endpointB: [0.5, 0, zB],
+          radiusA: 0.2,
+          radiusB: 0.2,
+        };
+        const projection = mat4.ortho(mat4.create(), -1, 1, -1, 1, 0.1, 2);
+        const reference = drawCone(gl, spec, SHADE_SURFACE, projection, true);
+        expect(coveredFraction(reference)).toBeGreaterThan(0);
+        expect(drawCone(gl, spec, SHADE_SURFACE, projection)).toEqual(
+          reference,
+        );
+        expect(
+          drawCone(
+            gl,
+            { ...spec, endpointA: spec.endpointB, endpointB: spec.endpointA },
+            SHADE_SURFACE,
+            projection,
+          ),
+        ).toEqual(reference);
+      });
+    },
+  );
+
   it("lets a function outside main read its depth, lighting and axial fraction", () => {
     webglTest((gl) => {
       expect(() =>
