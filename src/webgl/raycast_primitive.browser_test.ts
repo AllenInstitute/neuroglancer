@@ -403,6 +403,52 @@ describe("raycast cone", () => {
     });
   });
 
+  it("draws a widening cone's forward entry when its other root is behind the ray", () => {
+    webglTest((gl) => {
+      const projection = mat4.perspective(
+        mat4.create(),
+        FIELD_OF_VIEW,
+        1,
+        0.1,
+        2000,
+      );
+      const pixels = drawCone(
+        gl,
+        {
+          endpointA: [-10, 0, -0.1],
+          endpointB: [10, 0, -1000],
+          radiusA: 0.00518,
+          radiusB: 51.7767,
+        },
+        SHADE_SURFACE,
+        projection,
+      );
+      const centerPixel = (VIEWPORT / 2) * (VIEWPORT + 1);
+      expect(pixels[centerPixel * 4]).toBe(255);
+    });
+  });
+
+  it("hides the exit wall when the near plane places the ray inside a narrowing cone", () => {
+    webglTest((gl) => {
+      const spec: ConeSpec = {
+        endpointA: [0, 0, -0.05],
+        endpointB: [0, 0, -1],
+        radiusA: 0.02,
+        radiusB: 0.003,
+      };
+      const renderWithNearPlane = (near: number) =>
+        drawCone(
+          gl,
+          spec,
+          SHADE_SURFACE,
+          mat4.ortho(mat4.create(), -0.032, 0.032, -0.032, 0.032, near, 2),
+        );
+      const pixel = (VIEWPORT * (VIEWPORT / 2) + VIEWPORT / 2 + 9) * 4;
+      expect(renderWithNearPlane(0.01)[pixel]).toBe(255);
+      expect(renderWithNearPlane(0.1)[pixel]).toBe(0);
+    });
+  });
+
   it("tapers the width between two different end radii", () => {
     webglTest((gl) => {
       // Endpoint A is the lower end, so the width grows from bottom to top. These

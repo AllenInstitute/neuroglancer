@@ -83,8 +83,8 @@ bool coneEndClipped(highp float axialDist, highp float radiusAtHit) {
 // Through an open end, the near hit can lie past that end while the far hit is
 // on the surface.
 //
-// With the ray origin within the axial interval, a near hit behind it is a miss,
-// so that the far root cannot fill the view from inside.
+// Suppress exit hits when the ray starts inside the finite cone. Between the
+// roots is inside only when quadraticA is positive.
 //
 // The axial interval test keeps the radius between the end radii, so no surface
 // past the apex draws.
@@ -108,6 +108,9 @@ RaycastResult intersectRaycastPrimitive() {
   highp float radiusRate = taperRate * dirSplit.parallelDist;
 
   highp float quadraticA = perpSpeedSq - radiusRate * radiusRate;
+  bool rayOriginWithinConeAxis =
+      originSplit.parallelDist >= 0.0 &&
+      originSplit.parallelDist <= axisLength;
   highp float nearHitDist;
   highp float farHitDist;
   if (quadraticA > 0.0) {
@@ -125,6 +128,7 @@ RaycastResult intersectRaycastPrimitive() {
     if (!roots.exist) return raycastMiss();
     nearHitDist = closestDist + roots.nearRoot;
     farHitDist = closestDist + roots.farRoot;
+    if (!(nearHitDist >= 0.0) && rayOriginWithinConeAxis) return raycastMiss();
   } else {
     highp float radiusAtOrigin =
         radiusA + taperRate * originSplit.parallelDist;
@@ -133,6 +137,7 @@ RaycastResult intersectRaycastPrimitive() {
     highp float quadraticC =
         dot(originSplit.perp, originSplit.perp) -
         radiusAtOrigin * radiusAtOrigin;
+    if (quadraticC < 0.0 && rayOriginWithinConeAxis) return raycastMiss();
     if (quadraticA < 0.0) {
       QuadraticRoots roots =
           solveQuadratic(-quadraticA, -quadraticB, -quadraticC);
@@ -147,11 +152,6 @@ RaycastResult intersectRaycastPrimitive() {
   }
 
   highp float hitDist = nearHitDist;
-  bool rayOriginWithinConeAxis =
-      originSplit.parallelDist >= 0.0 &&
-      originSplit.parallelDist <= axisLength;
-  if (!(hitDist >= 0.0) && rayOriginWithinConeAxis) return raycastMiss();
-
   highp float axialDist =
       originSplit.parallelDist + hitDist * dirSplit.parallelDist;
   highp float radiusAtHit = radiusA + taperRate * axialDist;
